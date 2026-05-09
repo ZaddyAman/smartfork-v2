@@ -114,3 +114,19 @@ Started: $(date)
   - SentenceTransformer first-use downloads the model — tests must mock SentenceTransformer entirely
   - ollama.embed() returns {"embeddings": [[...]]} with nested list; access response["embeddings"][0]
 ---
+
+## 2026-05-09 - US-005
+- Implemented SmartForkConfig(BaseSettings) with TOML save/load, env var override (SMARTFORK_ prefix), secrets management
+- Theme validation: 6 allowed themes (phosphor, obsidian, ember, arctic, iron, tungsten), case-insensitive
+- Legacy config.json → config.toml migration with backup
+- get_secret()/set_secret() with env var fallback and Unix 0o600 permissions
+- Singleton get_config()/reload_config() with module-level cache
+- Legacy kilo_code_tasks_path property
+- Created tests/test_config.py (161 total tests passing)
+- **Learnings for future iterations:**
+  - pydantic v2 uses @field_validator not @validator (v1 API deprecated)
+  - TOML save should use nested sections ([core], [agents], [paths], [models], [indexing], [performance]) for readability
+  - When patching Path.home() in tests, must set return_value BEFORE config module is imported, else MagicMock leaks into CONFIG_DIR defaults
+  - Path fields benefit from @field_validator with expanduser() to handle ~ in paths
+  - agents dict uses string keys mapping to AgentConfig; TOML serialization needs special handling for nested dict of models
+---
