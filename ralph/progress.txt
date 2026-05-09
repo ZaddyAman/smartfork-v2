@@ -2,6 +2,51 @@
 Started: $(date)
 ---
 
+## Ralph Loop System — OpenCode-Native (Full Huntley Subagent Architecture)
+
+### Primary Path: OpenCode TUI
+- Start OpenCode in project root, switch to "ralph" agent, say "Start the Ralph loop"
+- Or: `opencode --agent ralph "Start the Ralph loop"`
+- Design doc: `docs/opencode-native-ralph.md`
+- Loop logic lives IN the agent's system prompt (no shell script needed)
+
+### Agent Architecture
+
+| Agent | File | Mode | Model | Permissions |
+|-------|------|------|-------|-------------|
+| **ralph** | `.opencode/agents/ralph.md` | primary | Strong (deepseek) | read/glob/grep/bash/task/edit |
+| **ralph-plan** | `.opencode/agents/ralph-plan.md` | subagent | opencode-go/kimi-k2.6 | read/glob/grep only |
+| **ralph-worker** | `.opencode/agents/ralph-worker.md` | subagent | opencode-go/kimi-k2.6 | Full access, parallel up to 10 |
+| **ralph-test** | `.opencode/agents/ralph-test.md` | subagent | opencode-go/kimi-k2.6 | bash/read only, STRICTLY 1 |
+
+### Per-Story Flow
+1. Orchestrator reads prd.json → picks next story
+2. ralph-plan studies spec + codebase (gaps check)
+3. ralph-worker (parallel) implements the story
+4. ralph-test (exactly 1) runs ruff → mypy → pytest
+5. If pass → commit, update PRD. If fail → fix → retest
+6. Loop to next story
+
+### Context Guarantee
+- Each subagent spawn = fresh 170k token window
+- Orchestrator's context: ~3k prompt + ~1k per story summary
+- After 27 stories: ~30k tokens (17% of window)
+- Orchestrator NEVER reads/writes code files — only PRD + summaries
+
+### Fallback: Shell Scripts
+- `ralph/ralph.sh` (bash/WSL/Git Bash) — `./ralph.sh --tool opencode 50`
+- `ralph/ralph.ps1` (PowerShell) — `.\ralph.ps1`
+- Use when headless/CI or if TUI agent unavailable
+
+### Core Huntley Principles Applied
+1. Primary agent = scheduler (minimal context usage)
+2. Expensive allocation work → subagents with fresh context
+3. Parallel subagents for search/write, STRICTLY 1 for tests
+4. Search before implementing (don't assume not implemented)
+5. Full implementations only (no placeholders)
+6. Fix unrelated test failures as part of increment
+7. Self-improvement: update AGENTS.md with learnings
+
 ## Codebase Patterns
 - Python 3.11+, Pydantic v2, Textual TUI
 - Protocols for interfaces (not ABCs)

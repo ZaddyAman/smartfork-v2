@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=75.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smartfork-v2"
+version = "0.1.0"
+description = "AI-native session intelligence CLI tool"
+license = {text = "AGPL-3.0"}
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "tomli>=2.0",
+    "tomli-w>=1.0",
+    "typer>=0.9",
+    "rich>=13.0",
+    "textual>=0.50",
+    "chromadb>=0.5",
+    "ollama>=0.4",
+    "sentence-transformers>=3.0",
+    "rank-bm25>=0.2",
+    "pydantic-ai>=0.0.1",
+    "smolagents>=1.0",
+    "strands-agents>=1.0",
+    "instructor>=1.0",
+    "aiosqlite>=0.20",
+    "watchdog>=4.0",
+    "loguru>=0.7",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.5",
+    "mypy>=1.0",
+]
+
+[project.scripts]
+smartfork = "smartfork.cli.commands:app"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["smartfork"]
+
+[tool.mypy]
+strict = true
+warn_return_any = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+exclude = ["tests/"]
+mypy_path = "src"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"
