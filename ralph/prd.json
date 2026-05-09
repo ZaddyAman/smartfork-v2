@@ -512,7 +512,7 @@
         "All tests pass"
       ],
       "priority": 26,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-027",
@@ -531,7 +531,7 @@
         "No crashes with tracebacks anywhere"
       ],
       "priority": 27,
-      "passes": false
+      "passes": true
     }
   ]
 }
