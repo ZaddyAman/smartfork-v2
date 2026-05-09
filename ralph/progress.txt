@@ -70,3 +70,18 @@ Started: $(date)
   - The themes/ directory doesn't need __init__.py — a .gitkeep suffices since it holds .tcss files
   - pip install -e . can hang on Windows when resolving deps; package import test is a faster alternative
 ---
+
+## 2026-05-09 - US-002
+- Created 5 model files: session.py, search.py, fork.py, config.py, supersession.py
+- Created protocols.py with LLMProvider, EmbeddingProvider, SessionAdapter Protocols
+- Updated models/__init__.py with full re-exports and __all__
+- Created 6 test files in tests/models/ covering all models and protocols (59 tests)
+- Fixed pydantic version incompatibility (upgraded pydantic 2.10.4 → 2.13.4)
+- **Learnings for future iterations:**
+  - SessionDocument MUST be decorated with @dataclass (spec snippet omitted it but notes say use @dataclass)
+  - Python Protocol class-level annotations like `agent_id: str` are NOT real attributes — use `__annotations__` to test them
+  - The duration_minutes guard `session_end > session_start > 0` rejects session_start=0 — tests must use valid timestamps
+  - ruff requires imports within parenthesized blocks to be alphabetically sorted
+  - Use modern Python 3.11+ type hints (list[...], X | None, StrEnum) — ruff enforces these
+  - pydantic version must be compatible with pydantic-core; pip install --upgrade pydantic fixes ImportError
+---
