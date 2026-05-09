@@ -130,3 +130,16 @@ Started: $(date)
   - Path fields benefit from @field_validator with expanduser() to handle ~ in paths
   - agents dict uses string keys mapping to AgentConfig; TOML serialization needs special handling for nested dict of models
 ---
+
+## 2026-05-09 - US-006
+- Created adapters/base.py: SessionAdapter ABC with 3 abstract methods + 3 concrete default methods
+- Created adapters/registry.py: @register decorator, get_adapter(), get_adapter_or_raise(), list_adapters(), list_agent_ids(), is_registered(), clear_registry()
+- Updated adapters/__init__.py with public exports
+- Created tests/adapters/test_base.py (5 tests) + test_registry.py (17 tests)
+- 181 total tests passing
+- **Learnings for future iterations:**
+  - SessionAdapter is both a Protocol (in providers/protocols.py for interface contracts) and an ABC (in adapters/base.py for concrete subclassing) — both needed but serve different purposes
+  - @register decorator must instantiate the class at decoration time (stores instance in _REGISTRY, not class)
+  - Registry string forward-refs need module-level import to avoid F821; can't rely solely on __future__ annotations
+  - clear_registry() helper is essential for test isolation since registry is module-level global state
+---

@@ -22,4 +22,9 @@ __all__ = [
     "list_agent_ids",
     "is_registered",
     "clear_registry",
+    # Adapters
+    "kilocode",
 ]
+
+# Auto-register all adapters on import
+from smartfork.adapters import kilocode  # noqa: F401
