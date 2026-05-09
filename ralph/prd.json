@@ -183,7 +183,7 @@
         "All tests pass with fixture SQLite data"
       ],
       "priority": 9,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-010",

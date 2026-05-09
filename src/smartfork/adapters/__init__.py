@@ -23,14 +23,22 @@ __all__ = [
     "is_registered",
     "clear_registry",
     # Adapters
+    "antigravity",
     "claudecode",
+    "cline",
+    "cursor_agent",
+    "gemini",
     "kilocode",
     "opencode",
 ]
 
 # Auto-register all adapters on import
 from smartfork.adapters import (
+    antigravity,  # noqa: F401
     claudecode,  # noqa: F401
+    cline,  # noqa: F401
+    cursor_agent,  # noqa: F401
+    gemini,  # noqa: F401
     kilocode,  # noqa: F401
     opencode,  # noqa: F401
 )
