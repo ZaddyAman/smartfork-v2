@@ -100,3 +100,17 @@ Started: $(date)
   - When mocking OllamaLLM tests, the OLLAMA_AVAILABLE guard in __init__ requires careful patching of module-level imports
   - B904 ruff rule: ImportError must be re-raised with `raise X from err` not bare `raise`
 ---
+
+## 2026-05-09 - US-004
+- Created providers/embedding.py: OllamaEmbedder (instruction-aware), SentenceTransformerEmbedder, OpenAIEmbedder + get_embedder() + check_embedding_model_available()
+- Created providers/guard.py: EmbeddingModelGuard with dimension compatibility check and warning messages
+- Updated providers/__init__.py with all embedding exports (embedders, instructions, guard)
+- Created tests/providers/test_embedding.py (41 tests) + test_guard.py (8 tests)
+- 138 total tests passing
+- **Learnings for future iterations:**
+  - OllamaEmbedder uses instruction prefixes per doc_type (Anthropic Contextual Retrieval technique); ST and OpenAI ignore doc_type
+  - get_embedder("openai") needs API key at init time; tests must patch _load_api_key to avoid CI failures
+  - EmbeddingModelGuard.check_compatibility: same model name trumps dimension mismatch (returns True)
+  - SentenceTransformer first-use downloads the model — tests must mock SentenceTransformer entirely
+  - ollama.embed() returns {"embeddings": [[...]]} with nested list; access response["embeddings"][0]
+---
