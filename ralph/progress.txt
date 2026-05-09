@@ -85,3 +85,18 @@ Started: $(date)
   - Use modern Python 3.11+ type hints (list[...], X | None, StrEnum) — ruff enforces these
   - pydantic version must be compatible with pydantic-core; pip install --upgrade pydantic fixes ImportError
 ---
+
+## 2026-05-09 - US-003
+- Created providers/llm.py: OllamaLLM, AnthropicLLM, OpenAILLM with complete() and complete_structured()
+- Created providers/helpers.py: check_ollama_available(), ensure_ollama_model(), list_available_ollama_models(), recommend_model()
+- Updated providers/__init__.py with full public exports
+- Added openai>=1.0 and anthropic>=0.30 to pyproject.toml dependencies
+- Installed openai, anthropic, instructor packages
+- Created tests/providers/ with 38 tests for helpers + LLM providers
+- **Learnings for future iterations:**
+  - AnthropicLLM and OpenAILLM need complete_structured() to satisfy LLMProvider protocol (even if cloud providers don't need it for US-003 scope)
+  - API key validation: `api_key=None` should skip init-time validation (factory sets None for cloud providers, allows lazy lookup); `api_key=""` triggers env lookup and raises if missing
+  - instructor.from_openai() works with Ollama's OpenAI-compatible endpoint at localhost:11434/v1
+  - When mocking OllamaLLM tests, the OLLAMA_AVAILABLE guard in __init__ requires careful patching of module-level imports
+  - B904 ruff rule: ImportError must be re-raised with `raise X from err` not bare `raise`
+---

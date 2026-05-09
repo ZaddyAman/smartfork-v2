@@ -1,5 +1,15 @@
 """SmartFork v2 — Provider implementations."""
 
+from smartfork.providers.embedding import (
+    EMBED_INSTRUCTIONS,
+    QUERY_INSTRUCTION,
+    OllamaEmbedder,
+    OpenAIEmbedder,
+    SentenceTransformerEmbedder,
+    check_embedding_model_available,
+    get_embedder,
+)
+from smartfork.providers.guard import EmbeddingModelGuard
 from smartfork.providers.helpers import (
     check_ollama_available,
     ensure_ollama_model,
@@ -19,12 +29,21 @@ from smartfork.providers.protocols import (
 )
 
 __all__ = [
-    # Factory
+    # LLM Factory
     "get_llm",
     # LLM implementations
     "OllamaLLM",
     "AnthropicLLM",
     "OpenAILLM",
+    # Embedding Factory
+    "get_embedder",
+    # Embedding implementations
+    "OllamaEmbedder",
+    "SentenceTransformerEmbedder",
+    "OpenAIEmbedder",
+    # Embedding instructions
+    "EMBED_INSTRUCTIONS",
+    "QUERY_INSTRUCTION",
     # Protocols
     "LLMProvider",
     "EmbeddingProvider",
@@ -34,4 +53,7 @@ __all__ = [
     "ensure_ollama_model",
     "list_available_ollama_models",
     "recommend_model",
+    "check_embedding_model_available",
+    # Guard
+    "EmbeddingModelGuard",
 ]
