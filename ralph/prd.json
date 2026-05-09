@@ -370,7 +370,7 @@
         "All tests pass (with mock LLM)"
       ],
       "priority": 19,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-020",
@@ -388,7 +388,7 @@
         "All tests pass (with mock LLM)"
       ],
       "priority": 20,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-021",
