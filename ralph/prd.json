@@ -473,7 +473,7 @@
         "All tests pass"
       ],
       "priority": 24,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-025",
@@ -492,7 +492,7 @@
         "All tests pass"
       ],
       "priority": 25,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-026",
