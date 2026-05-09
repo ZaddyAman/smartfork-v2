@@ -58,3 +58,15 @@ Started: $(date)
 - Loguru for all logging
 - Type hints everywhere
 - ruff + mypy + pytest for quality
+
+## 2026-05-09 - US-001
+- Created full directory scaffolding: all 12 sub-packages under src/smartfork/ with __init__.py
+- Created tests/ directory with conftest.py
+- Added LICENSE (AGPL-3.0)
+- Created placeholder CLI entry point (src/smartfork/cli/commands.py) with mypy-compliant type annotations
+- pyproject.toml, ruff.toml, mypy.ini, pytest.ini, .gitignore already existed and are correct per spec
+- **Learnings for future iterations:**
+  - mypy strict mode requires return type annotations on every function (including callbacks like typer callbacks)
+  - The themes/ directory doesn't need __init__.py — a .gitkeep suffices since it holds .tcss files
+  - pip install -e . can hang on Windows when resolving deps; package import test is a faster alternative
+---

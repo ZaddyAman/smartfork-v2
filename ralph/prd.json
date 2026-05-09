@@ -37,7 +37,7 @@
         "pytest.ini configured"
       ],
       "priority": 1,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-002",
