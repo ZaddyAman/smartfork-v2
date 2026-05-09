@@ -219,11 +219,9 @@ def mcp(
 @app.command()
 def shell() -> None:
     """Start an interactive SmartFork shell (requires Textual)."""
-    console.print("[bold]SmartFork v2 Shell[/bold]")
-    console.print(
-        "[dim]Interactive shell coming soon."
-        " Use 'smartfork search <query>' for now.[/dim]",
-    )
+    from smartfork.tui import run_tui
+
+    run_tui()
 
 
 if __name__ == "__main__":
