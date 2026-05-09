@@ -25,10 +25,12 @@ __all__ = [
     # Adapters
     "claudecode",
     "kilocode",
+    "opencode",
 ]
 
 # Auto-register all adapters on import
 from smartfork.adapters import (
     claudecode,  # noqa: F401
     kilocode,  # noqa: F401
+    opencode,  # noqa: F401
 )
