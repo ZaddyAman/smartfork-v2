@@ -143,3 +143,16 @@ Started: $(date)
   - Registry string forward-refs need module-level import to avoid F821; can't rely solely on __future__ annotations
   - clear_registry() helper is essential for test isolation since registry is module-level global state
 ---
+
+## 2026-05-09 - US-007
+- Created adapters/kilocode.py: KiloCodeAdapter with full 3-file JSON parsing, multi-format content extraction, 15+ tool call detection, content cleaning, IDE path detection for 3 IDEs across 3 platforms
+- Created test fixtures: task_metadata.json, api_conversation_history.json, ui_messages.json
+- Created tests/adapters/test_kilocode.py (28 tests)
+- 209 total tests passing
+- **Learnings for future iterations:**
+  - Kilo Code ui_messages.json reasoning blocks use `say` field as type indicator and `text` field for actual content — don't confuse them
+  - Multi-format content: plain string, OpenAI array `[{type, text}]`, and nested `{type, text: {value}}` — need robust recursive extraction
+  - Tool call turns should still be cleaned (remove file_content blocks), not just skipped entirely
+  - parse_raw() should guard with is_valid_session() early to return None for nonexistent dirs
+  - Fixture data must be realistic enough to test ALL extraction paths (string content, array-of-parts, reasoning, tool calls)
+---

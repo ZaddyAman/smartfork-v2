@@ -23,8 +23,12 @@ __all__ = [
     "is_registered",
     "clear_registry",
     # Adapters
+    "claudecode",
     "kilocode",
 ]
 
 # Auto-register all adapters on import
-from smartfork.adapters import kilocode  # noqa: F401
+from smartfork.adapters import (
+    claudecode,  # noqa: F401
+    kilocode,  # noqa: F401
+)

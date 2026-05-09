@@ -146,7 +146,7 @@
         "All tests pass with fixture test data"
       ],
       "priority": 7,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-008",
