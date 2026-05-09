@@ -1,0 +1,533 @@
+{
+  "project": "SmartFork v2",
+  "branchName": "ralph/smartfork-v2",
+  "description": "AI-native session intelligence CLI tool — indexes coding session transcripts, provides semantic search, and generates context forks for new sessions.",
+  "buildOrder": [
+    "19-data-models",
+    "01-providers", 
+    "02-config",
+    "03-adapters",
+    "04-parser",
+    "05-chunking",
+    "06-embedding",
+    "09-metadata-store",
+    "07-index-intelligence",
+    "08-supersession",
+    "10-deterministic-search",
+    "11-agentic-search",
+    "12-fork-priming",
+    "13-obsidian-vault",
+    "16-cli-commands",
+    "14-tui-app",
+    "15-mcp-server",
+    "17-testing-strategy",
+    "18-edge-cases"
+  ],
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Create project scaffolding and pyproject.toml",
+      "description": "Initialize the SmartFork v2 Python project with pyproject.toml, directory structure, and development dependencies.",
+      "spec": "00-architecture.md",
+      "acceptanceCriteria": [
+        "pyproject.toml with all dependencies from architecture spec",
+        "Directory structure matches architecture spec",
+        "pip install -e . works",
+        "ruff.toml and mypy.ini configured",
+        "pytest.ini configured"
+      ],
+      "priority": 1,
+      "passes": false
+    },
+    {
+      "id": "US-002",
+      "title": "Implement all data models, enums, and protocols",
+      "description": "Create SessionDocument, SearchResult, ResultCard, RawSessionData, RawTurn, QualityTag, SearchIntent, ForkIntent, all Pydantic models and protocols.",
+      "spec": "19-data-models.md",
+      "acceptanceCriteria": [
+        "All models in src/smartfork/models/",
+        "QualityTag, SearchIntent, ForkIntent enums",
+        "SessionDocument, RawSessionData, RawTurn dataclasses",
+        "SearchResult, ResultCard, QueryDecomposition dataclasses",
+        "ContextReport, ForkIntent dataclasses",
+        "LLMProvider, EmbeddingProvider, SessionAdapter protocols",
+        "AgentConfig, ProviderConfig Pydantic models",
+        "All tests pass"
+      ],
+      "priority": 2,
+      "passes": false
+    },
+    {
+      "id": "US-003",
+      "title": "Implement LLM provider system (Ollama + Anthropic + OpenAI)",
+      "description": "Build pluggable LLM backends with Protocol interface. Default: Ollama (local). Cloud: Anthropic/OpenAI (opt-in with API keys).",
+      "spec": "01-providers.md",
+      "acceptanceCriteria": [
+        "OllamaLLM class with complete() and complete_structured()",
+        "AnthropicLLM class with complete()",
+        "OpenAILLM class with complete()",
+        "get_llm() factory function",
+        "check_ollama_available() health check",
+        "ensure_ollama_model() helper",
+        "Graceful error when Ollama not installed",
+        "Graceful error when cloud API key missing",
+        "All tests pass"
+      ],
+      "priority": 3,
+      "passes": false
+    },
+    {
+      "id": "US-004",
+      "title": "Implement embedding provider system (Ollama + SentenceTransformers + OpenAI)",
+      "description": "Build pluggable embedding backends. Instruction-aware prefixes per doc_type. Embedding model change guard.",
+      "spec": "01-providers.md",
+      "acceptanceCriteria": [
+        "OllamaEmbedder with instruction prefix support",
+        "SentenceTransformerEmbedder (no-instruction fallback)",
+        "OpenAIEmbedder class",
+        "get_embedder() factory function",
+        "EmbeddingModelGuard with dimension compatibility check",
+        "Health check functions",
+        "All tests pass"
+      ],
+      "priority": 4,
+      "passes": false
+    },
+    {
+      "id": "US-005",
+      "title": "Implement configuration system (TOML + Pydantic + secrets)",
+      "description": "SmartForkConfig with Pydantic validation, TOML storage, secrets.env for API keys, legacy JSON migration.",
+      "spec": "02-config.md",
+      "acceptanceCriteria": [
+        "SmartForkConfig BaseSettings class with all fields",
+        "AgentConfig model with multi-path support",
+        "save() to config.toml",
+        "load() from config.toml",
+        "get_secret() / set_secret() for API keys",
+        "Legacy config.json → config.toml migration",
+        "Singleton get_config() / reload_config()",
+        "Theme validation (6 valid themes)",
+        "All tests pass"
+      ],
+      "priority": 5,
+      "passes": false
+    },
+    {
+      "id": "US-006",
+      "title": "Implement adapter base class and registry",
+      "description": "SessionAdapter ABC with RawSessionData/RawTurn contracts. @register decorator. Registry functions.",
+      "spec": "03-adapters.md",
+      "acceptanceCriteria": [
+        "SessionAdapter ABC with agent_id, display_name, session_type",
+        "is_valid_session(), get_session_files(), parse_raw() abstract methods",
+        "RawSessionData dataclass with all fields from spec",
+        "RawTurn dataclass",
+        "@register decorator that auto-registers adapters",
+        "get_adapter(), list_adapters(), is_registered() functions",
+        "All tests pass"
+      ],
+      "priority": 6,
+      "passes": false
+    },
+    {
+      "id": "US-007",
+      "title": "Implement Kilo Code adapter",
+      "description": "Parse Kilo Code 3-file session format (task_metadata.json + api_conversation_history.json + ui_messages.json). Extract file signals, conversation turns, reasoning blocks.",
+      "spec": "03-adapters.md",
+      "acceptanceCriteria": [
+        "KiloCodeAdapter class registered via @register",
+        "is_valid_session() checks for api_conversation_history.json",
+        "parse_raw() extracts all file signals",
+        "parse_raw() extracts conversation turns (user + assistant)",
+        "parse_raw() extracts reasoning from ui_messages.json",
+        "Tool call detection (15+ tags)",
+        "Content cleaning (remove file_content, env_details, code blocks)",
+        "IDE path detection (Cursor, VS Code, AntiGravity)",
+        "All tests pass with fixture test data"
+      ],
+      "priority": 7,
+      "passes": false
+    },
+    {
+      "id": "US-008",
+      "title": "Implement Claude Code adapter",
+      "description": "Parse Claude Code .jsonl session format. Handle Claude's tool_use blocks. Scan project folder structure.",
+      "spec": "03-adapters.md",
+      "acceptanceCriteria": [
+        "ClaudeCodeAdapter class registered via @register",
+        "is_valid_session() checks for .jsonl extension",
+        "parse_raw() handles JSON lines format",
+        "parse_raw() handles Claude tool_use blocks (list content)",
+        "Extract file signals from read_file/write_file tools",
+        "session_type='project' with nested scan support",
+        "Respect CLAUDE_CONFIG_DIR env var",
+        "Default path: ~/.claude/projects",
+        "All tests pass with fixture .jsonl data"
+      ],
+      "priority": 8,
+      "passes": false
+    },
+    {
+      "id": "US-009",
+      "title": "Implement OpenCode adapter (SQLite-based)",
+      "description": "Parse OpenCode SQLite database. Query session, message, part tables. Extract reasoning and tool calls.",
+      "spec": "03-adapters.md",
+      "acceptanceCriteria": [
+        "OpenCodeAdapter class registered via @register",
+        "is_valid_session() checks for .db extension",
+        "get_all_sessions_from_db() queries session table",
+        "Extract user content from text parts",
+        "Extract assistant content from reasoning + tool parts",
+        "Model detection from message data",
+        "Default path: ~/.local/share/opencode/opencode.db",
+        "All tests pass with fixture SQLite data"
+      ],
+      "priority": 9,
+      "passes": false
+    },
+    {
+      "id": "US-010",
+      "title": "Implement remaining adapters (Cursor, AntiGravity, Cline, Gemini)",
+      "description": "Register placeholder adapters for Cursor Agent, AntiGravity, Cline, and Gemini. AntiGravity wraps KiloCode with different paths.",
+      "spec": "03-adapters.md",
+      "acceptanceCriteria": [
+        "AntiGravityAdapter registered (wraps KiloCode, different paths)",
+        "CursorAgentAdapter registered (placeholder, inactive)",
+        "ClineAdapter registered (placeholder, inactive)",
+        "GeminiAdapter registered (placeholder, inactive)",
+        "adapters/__init__.py imports trigger all registrations",
+        "All tests pass"
+      ],
+      "priority": 10,
+      "passes": false
+    },
+    {
+      "id": "US-011",
+      "title": "Implement SessionParser with project extraction",
+      "description": "Generic parser that takes RawSessionData from any adapter → SessionDocument. Zero-LLM derivation of project name, domains, languages, layers, session pattern.",
+      "spec": "04-parser.md",
+      "acceptanceCriteria": [
+        "SessionParser class with parse_session() method",
+        "derive_project_name() from workspace_dir + file paths",
+        "extract_domains() with 10 domain patterns",
+        "extract_languages() with 30+ extension mappings",
+        "extract_layers() for frontend/backend detection",
+        "classify_session_pattern() for 5 patterns",
+        "Reasoning extraction with deduplication",
+        "Works with all adapter output formats",
+        "All tests pass with each adapter fixture"
+      ],
+      "priority": 11,
+      "passes": false
+    },
+    {
+      "id": "US-012",
+      "title": "Implement chunking system (message-boundary + contextual)",
+      "description": "MessageBoundaryChunker (never splits messages or code blocks). ContextualChunker (adds Anthropic-style context headers). Factory function.",
+      "spec": "05-chunking.md",
+      "acceptanceCriteria": [
+        "ChunkingConfig dataclass",
+        "MessageBoundaryChunker with token estimation",
+        "Code block detection (40% code lines, fence markers)",
+        "Code blocks NEVER split across chunks",
+        "ContextualChunker with context header format",
+        "Reasoning block splitting at sentence boundaries",
+        "2-sentence overlap between reasoning splits",
+        "create_chunker() factory function",
+        "All tests pass"
+      ],
+      "priority": 12,
+      "passes": false
+    },
+    {
+      "id": "US-013",
+      "title": "Implement embedding pipeline with ChromaDB integration",
+      "description": "EmbeddingPipeline: chunk → embed with instruction prefix → upsert to ChromaDB. Batching, retry, progress reporting.",
+      "spec": "06-embedding.md",
+      "acceptanceCriteria": [
+        "EmbeddingPipeline class",
+        "Instruction prefixes per doc_type (task/summary/reasoning/proposition)",
+        "embed_and_store() with batching (32 chunks)",
+        "embed_query() with query instruction",
+        "ChromaDB PersistentClient setup (cosine distance)",
+        "Retry with exponential backoff (max 3)",
+        "Progress callback support",
+        "Collection stats function",
+        "All tests pass"
+      ],
+      "priority": 13,
+      "passes": false
+    },
+    {
+      "id": "US-014",
+      "title": "Implement SQLite metadata store",
+      "description": "MetadataStore with full schema. CRUD for sessions. Supersession links. Stats queries. Hard filtering for pre-search.",
+      "spec": "09-metadata-store.md",
+      "acceptanceCriteria": [
+        "Complete SQLite schema with all tables and indexes",
+        "upsert_session() with JSON serialization for list fields",
+        "get_session(), delete_session() CRUD",
+        "Query methods: by project, domain, quality, agent",
+        "add_supersession_link(), get_superseding_sessions()",
+        "get_stats() with breakdown by project, quality, agent",
+        "get_filtered_ids() for pre-search hard filtering",
+        "WAL mode, indexed columns",
+        "All tests pass with sample data"
+      ],
+      "priority": 14,
+      "passes": false
+    },
+    {
+      "id": "US-015",
+      "title": "Implement index-time intelligence (quality tags, tech tags, titling, summarization)",
+      "description": "LLM-powered enrichment: session titling, 3-sentence summarization, quality tagging, tech tagging, proposition extraction. Graceful fallbacks.",
+      "spec": "07-index-intelligence.md",
+      "acceptanceCriteria": [
+        "IndexIntelligence class with enrich() method",
+        "Session titling via LLM + fallback",
+        "3-sentence summarization via LLM + fallback",
+        "Quality tagging: SOLUTION_FOUND/DEAD_END/PARTIAL/REFERENCE/UNKNOWN",
+        "Tech tagging: LLM-extracted frameworks + libraries",
+        "Proposition extraction: atomic facts from reasoning (max 3 blocks)",
+        "enrich_batch() with progress callback",
+        "All steps degrade gracefully when LLM unavailable",
+        "All tests pass"
+      ],
+      "priority": 15,
+      "passes": false
+    },
+    {
+      "id": "US-016",
+      "title": "Implement supersession detection and annotation",
+      "description": "Detect when newer sessions supersede older ones. Regex-based resolution status. Post-search annotation with visual indicators and chain following.",
+      "spec": "08-supersession.md",
+      "acceptanceCriteria": [
+        "SupersessionDetector with cosine similarity",
+        "Domain-specific thresholds (error_recall, decision_hunting, default)",
+        "Candidate filtering (same project, overlapping domains, older)",
+        "Edge case guards (self-supersession, unknown_project, short tasks)",
+        "Resolution status detection via regex patterns",
+        "Sentence-boundary negation handling",
+        "SupersessionAnnotator with visual indicators",
+        "Chain following (max depth 5)",
+        "Additive boost (+0.15) for superseding sessions",
+        "All tests pass"
+      ],
+      "priority": 16,
+      "passes": false
+    },
+    {
+      "id": "US-017",
+      "title": "Implement full indexer (FullIndexer + SessionScanner + Watcher)",
+      "description": "Orchestrates the complete indexing pipeline: scan → parse → chunk → embed → store → enrich. Supports full and incremental indexing.",
+      "spec": "00-architecture.md",
+      "acceptanceCriteria": [
+        "FullIndexer class orchestrating full pipeline",
+        "SessionScanner discovering sessions via adapters",
+        "TranscriptWatcher for filesystem-based incremental indexing",
+        "Progress reporting during indexing",
+        "Error handling: skip bad sessions, continue pipeline",
+        "Batch processing for memory efficiency",
+        "Incremental indexing (skip already-indexed sessions)",
+        "All tests pass"
+      ],
+      "priority": 17,
+      "passes": false
+    },
+    {
+      "id": "US-018",
+      "title": "Implement deterministic search engine (Path A)",
+      "description": "Fast, free, always-available search: query parse → embed → vector + BM25 → RRF fusion → metadata filter → rerank → result cards.",
+      "spec": "10-deterministic-search.md",
+      "acceptanceCriteria": [
+        "QueryParser with regex-based intent detection",
+        "90+ technology keyword detection",
+        "Vector search via ChromaDB cosine",
+        "BM25 search via rank-bm25",
+        "RRF fusion (standard, weighted, intent-aware alpha)",
+        "Multi-signal chunk reranker (5 signals)",
+        "Metadata pre-filtering via SQLite",
+        "ResultCard formatting with humanized timestamps",
+        "SearchCache with TTL and session invalidation",
+        "Target latency: <500ms for 10K sessions",
+        "All tests pass"
+      ],
+      "priority": 18,
+      "passes": false
+    },
+    {
+      "id": "US-019",
+      "title": "Implement agentic search engine (Path B) — query understanding + parallel search",
+      "description": "PydanticAI agent for query understanding + Smolagents workers for parallel multi-variant search. Steps 1-2 of the agentic pipeline.",
+      "spec": "11-agentic-search.md",
+      "acceptanceCriteria": [
+        "PydanticAI query_agent with QueryDecomposition structured output",
+        "3-5 search variants generated from natural language query",
+        "Smolagents workers (5 parallel) with different search strategies",
+        "Workers: vector_only, bm25_only, hybrid_balanced, hybrid_bm25_heavy, metadata_focused",
+        "Result collection and deduplication",
+        "Fallback to deterministic when Ollama not available",
+        "All tests pass (with mock LLM)"
+      ],
+      "priority": 19,
+      "passes": false
+    },
+    {
+      "id": "US-020",
+      "title": "Implement agentic search engine — evaluation, refinement, synthesis",
+      "description": "PydanticAI agents for result evaluation, refinement loop, and recommendation synthesis. Steps 3-5 of the agentic pipeline.",
+      "spec": "11-agentic-search.md",
+      "acceptanceCriteria": [
+        "eval_agent: reads top candidates, rates relevance 0-10, explains why",
+        "refinement agent: generates new search variants when nothing above threshold",
+        "Refinement loop: max 3 rounds",
+        "Empty result when nothing found after 3 rounds",
+        "synth_agent: natural language explanations for each result",
+        "ResultCards with relevance_explanation populated",
+        "Full pipeline: understand → search → evaluate → refine → synthesize",
+        "All tests pass (with mock LLM)"
+      ],
+      "priority": 20,
+      "passes": false
+    },
+    {
+      "id": "US-021",
+      "title": "Implement fork assembler and generator",
+      "description": "Context report generation for 4 intents (CONTINUE, REFERENCE, DEBUG, SYNTHESIZE). LLM distillation + raw fallback. Compaction gap analysis.",
+      "spec": "12-fork-priming.md",
+      "acceptanceCriteria": [
+        "ForkAssembler with assemble() method",
+        "4 intents: CONTINUE, REFERENCE, DEBUG, SYNTHESIZE",
+        "6 context layers (A-F) assembled per intent",
+        "LLM mode: narrative context report",
+        "Raw fallback: structured markdown without LLM",
+        "Compaction gap analysis when pre-compaction export exists",
+        "/fork.md output format matching spec",
+        "ForkExporter: save to file, clipboard, MCP delivery",
+        "All tests pass"
+      ],
+      "priority": 21,
+      "passes": false
+    },
+    {
+      "id": "US-022",
+      "title": "Implement Obsidian vault generator",
+      "description": "Auto-generate Obsidian-compatible knowledge vault with MOC, session notes, Mermaid graphs, Dataview queries, project MOCs.",
+      "spec": "13-obsidian-vault.md",
+      "acceptanceCriteria": [
+        "ObsidianVaultGenerator with generate() method",
+        "Session notes with YAML frontmatter (all fields)",
+        "MOC.md with Mermaid graph + Dataview queries",
+        "_Graph/ Graph View.md with wiki-links",
+        ".obsidian/ config files",
+        "Project MOCs (--project-folders flag)",
+        "YAML escaping for special characters",
+        "Handle empty database gracefully",
+        "All tests pass"
+      ],
+      "priority": 22,
+      "passes": false
+    },
+    {
+      "id": "US-023",
+      "title": "Implement CLI commands (all 12 commands)",
+      "description": "Typer-based CLI with setup, index, search, detect-fork, fork, status, vault, config, theme, watch, mcp, shell commands.",
+      "spec": "16-cli-commands.md",
+      "acceptanceCriteria": [
+        "All 12 commands functional",
+        "setup wizard flow",
+        "index with progress display",
+        "search and detect-fork with all flags",
+        "fork with 4 intents and export options",
+        "status with stats display",
+        "vault generation",
+        "config get/set/list/reset",
+        "theme switch/list",
+        "mcp install/serve/status/uninstall",
+        "Global flags: --no-tui, --verbose, --lite",
+        "All tests pass"
+      ],
+      "priority": 23,
+      "passes": false
+    },
+    {
+      "id": "US-024",
+      "title": "Implement Textual TUI screens and widgets",
+      "description": "Fullscreen TUI with MainScreen, SearchScreen, ForkScreen, StatusScreen, SetupWizardScreen, CommandPalette, and 6 CSS themes.",
+      "spec": "14-tui-app.md",
+      "acceptanceCriteria": [
+        "Textual App entry point",
+        "MainScreen with command input + results area",
+        "SearchScreen with expandable result cards",
+        "ForkScreen with intent selector + preview",
+        "StatusScreen with stats",
+        "SetupWizardScreen with 5-step flow",
+        "CommandPalette (Ctrl+O) with fuzzy search",
+        "6 CSS themes (phosphor, obsidian, ember, arctic, iron, tungsten)",
+        "Keyboard shortcuts as specified",
+        "CLI fallback when Textual not installed",
+        "All tests pass"
+      ],
+      "priority": 24,
+      "passes": false
+    },
+    {
+      "id": "US-025",
+      "title": "Implement MCP server",
+      "description": "MCP server for Claude Code integration. Expose detect_fork, fork_session, index_status, search_sessions, and other tools.",
+      "spec": "15-mcp-server.md",
+      "acceptanceCriteria": [
+        "MCP server with 8 tools (detect_fork, fork_session, etc.)",
+        "Strands Agents integration (primary)",
+        "Raw mcp package fallback",
+        "smartfork mcp install command (auto-configure Claude Code)",
+        "smartfork mcp serve command",
+        "smartfork mcp status command",
+        "Local-only transport (stdio, not HTTP)",
+        "Read-only tools except config_set and vault_export",
+        "All tests pass"
+      ],
+      "priority": 25,
+      "passes": false
+    },
+    {
+      "id": "US-026",
+      "title": "Write comprehensive test suite and test fixtures",
+      "description": "Unit tests for all components, integration tests for pipelines, agentic tests with mock LLM, adapter tests with fixture data.",
+      "spec": "17-testing-strategy.md",
+      "acceptanceCriteria": [
+        "conftest.py with mock_llm, mock_embedder, temp_db, temp_chroma fixtures",
+        "Test fixtures: kilocode session, claudecode .jsonl, opencode.db",
+        "Unit tests for all pure functions (80%+ coverage)",
+        "Integration tests for full pipelines",
+        "Agentic tests with mock LLM",
+        "Adapter tests with fixture data",
+        "Edge case tests (empty, corrupt, unicode, large)",
+        "Performance tests marked with @pytest.mark.slow",
+        "CI workflow (.github/workflows/test.yml)",
+        "All tests pass"
+      ],
+      "priority": 26,
+      "passes": false
+    },
+    {
+      "id": "US-027",
+      "title": "Implement edge case handling and graceful degradation",
+      "description": "Every component handles failure gracefully. User-friendly error messages, fallback paths, no traceback crashes.",
+      "spec": "18-edge-cases.md",
+      "acceptanceCriteria": [
+        "Ollama missing/not-running → clear error + fix instructions",
+        "Cloud API key missing → clear error + alternatives",
+        "ChromaDB corrupt → reset instructions",
+        "Corrupt session files → skip + log, don't stop pipeline",
+        "Empty database → helpful message",
+        "Search timeout → suggest filters",
+        "Unicode fallback for Windows legacy terminals",
+        "Lite mode for low-resource environments",
+        "No crashes with tracebacks anywhere"
+      ],
+      "priority": 27,
+      "passes": false
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+# Ralph Progress Log — SmartFork v2
+Started: $(date)
+---
+
+## Codebase Patterns
+- Python 3.11+, Pydantic v2, Textual TUI
+- Protocols for interfaces (not ABCs)
+- All models in src/smartfork/models/
+- TOML config at ~/.smartfork/config.toml
+- Secrets at ~/.smartfork/secrets.env
+- ChromaDB embedded (PersistentClient, cosine distance)
+- SQLite with WAL mode
+- Loguru for all logging
+- Type hints everywhere
+- ruff + mypy + pytest for quality
