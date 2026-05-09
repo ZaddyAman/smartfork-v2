@@ -411,7 +411,7 @@
         "All tests pass"
       ],
       "priority": 21,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-022",
