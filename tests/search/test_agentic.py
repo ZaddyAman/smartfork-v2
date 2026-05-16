@@ -12,16 +12,18 @@ class MockLLM:
         return ""
 
     def complete_structured(
-        self, prompt: str, output_schema: type, max_tokens: int = 500
+        self,
+        prompt: str,
+        output_schema: type,
+        max_tokens: int = 500,
+        temperature: float = 0.1,
     ) -> object:
-        from smartfork.models.search import QueryDecomposition, SearchIntent
+        from smartfork.models.search import QueryDecomposition
         return QueryDecomposition(
-            intent=SearchIntent.ERROR_RECALL,
             core_goal="fix auth bug",
-            entities=["auth", "jwt"],
             search_variants=["fix auth bug", "jwt authentication error", "login 401 fix"],
-            what_should_match="auth jwt",
-            what_should_not_match="",
+            entities={"technologies": ["auth", "jwt"]},
+            intent="error_recall",
         )
 
 

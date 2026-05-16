@@ -11,7 +11,11 @@ class LLMProvider(Protocol):
     ) -> str: ...
 
     def complete_structured(
-        self, prompt: str, output_schema: type, max_tokens: int = 500
+        self,
+        prompt: str,
+        output_schema: type,
+        max_tokens: int = 500,
+        temperature: float = 0.1,
     ) -> object: ...
 
 

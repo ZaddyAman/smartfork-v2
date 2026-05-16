@@ -73,7 +73,11 @@ class OllamaLLM:
             ) from e
 
     def complete_structured(
-        self, prompt: str, output_schema: type, max_tokens: int = 500
+        self,
+        prompt: str,
+        output_schema: type,
+        max_tokens: int = 500,
+        temperature: float = 0.1,
     ) -> Any:
         """Get structured output from Ollama using instructor.
 
@@ -84,6 +88,7 @@ class OllamaLLM:
             prompt: The prompt to send.
             output_schema: A Pydantic model class for structured output.
             max_tokens: Maximum tokens in the response.
+            temperature: Sampling temperature.
 
         Returns:
             An instance of output_schema.
@@ -103,6 +108,7 @@ class OllamaLLM:
             response: Any = client.chat.completions.create(
                 model=self.model,
                 max_tokens=max_tokens,
+                temperature=temperature,
                 response_model=output_schema,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -184,7 +190,11 @@ class AnthropicLLM:
             ) from e
 
     def complete_structured(
-        self, prompt: str, output_schema: type, max_tokens: int = 500
+        self,
+        prompt: str,
+        output_schema: type,
+        max_tokens: int = 500,
+        temperature: float = 0.1,
     ) -> Any:
         """Get structured output from Anthropic using instructor.
 
@@ -192,6 +202,7 @@ class AnthropicLLM:
             prompt: The prompt to send.
             output_schema: A Pydantic model class for structured output.
             max_tokens: Maximum tokens in the response.
+            temperature: Sampling temperature.
 
         Returns:
             An instance of output_schema.
@@ -204,6 +215,7 @@ class AnthropicLLM:
             response: Any = client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
+                temperature=temperature,
                 response_model=output_schema,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -279,7 +291,11 @@ class OpenAILLM:
             ) from e
 
     def complete_structured(
-        self, prompt: str, output_schema: type, max_tokens: int = 500
+        self,
+        prompt: str,
+        output_schema: type,
+        max_tokens: int = 500,
+        temperature: float = 0.1,
     ) -> Any:
         """Get structured output from OpenAI using instructor.
 
@@ -287,6 +303,7 @@ class OpenAILLM:
             prompt: The prompt to send.
             output_schema: A Pydantic model class for structured output.
             max_tokens: Maximum tokens in the response.
+            temperature: Sampling temperature.
 
         Returns:
             An instance of output_schema.
@@ -299,6 +316,7 @@ class OpenAILLM:
             response: Any = client.chat.completions.create(
                 model=self.model,
                 max_tokens=max_tokens,
+                temperature=temperature,
                 response_model=output_schema,
                 messages=[{"role": "user", "content": prompt}],
             )

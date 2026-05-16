@@ -51,7 +51,7 @@
         "ruff clean on config.py and models/config.py"
       ],
       "priority": 2,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-003",

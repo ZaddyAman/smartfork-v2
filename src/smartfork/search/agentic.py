@@ -102,6 +102,7 @@ class AgenticSearchEngine:
                 f"entities, and 3-5 search variants: {query}",
                 output_schema=QueryDecomposition,
                 max_tokens=200,
+                temperature=0.1,
             )
             if isinstance(result, QueryDecomposition):
                 return result
@@ -243,7 +244,9 @@ class AgenticSearchEngine:
                     for line in str(response).split("\n")
                     if line.strip()
                 ]
-                return lines[:3]
+                variants = lines[:3] if lines else []
+                if variants:
+                    return variants
             except Exception as e:
                 logger.warning(f"LLM refinement failed: {e}")
 

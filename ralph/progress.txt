@@ -173,3 +173,18 @@ Started: $(date)
   - loguru import needs to be grouped with third-party imports for ruff I001 compliance
   - Pre-existing ruff/mypy/pytest failures in other modules (theme.py, mcp/server.py, providers/helpers.py, adapters/opencode.py) are not caused by this change
 ---
+
+## 2026-05-16 - US-002
+- Added tiered LLM configuration (strategic_llm + smart_llm)
+- Files changed: src/smartfork/config.py, tests/test_config.py
+- Added 6 new fields: strategic_llm_provider/model/base_url, smart_llm_provider/model/base_url
+- Added @model_validator(mode='after') to backfill None defaults from base llm_* values
+- Updated _flatten_toml(), _to_nested_dict(), _migrate_legacy() to handle new fields
+- Added 5 tests in TestTieredLLMConfig covering defaults, overrides, round-trip, TOML serialization, and conditional base_url omission
+- Fixed pre-existing test bug: test_default_embedding_dimensions_is_512 → 1024
+- 28 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Pydantic BaseSettings doesn't support self-referencing defaults at class level; use @model_validator(mode='after') for backfill logic
+  - Conditional TOML serialization for *_base_url should match existing llm_base_url pattern (omit when None)
+  - Legacy migration simple_fields set must include new fields or they get lost during JSON→TOML migration
+---

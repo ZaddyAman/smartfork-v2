@@ -21,31 +21,29 @@ class TestSearchIntent:
 
 class TestQueryDecomposition:
     def test_defaults(self) -> None:
-        qd = QueryDecomposition(
-            intent=SearchIntent.VAGUE_MEMORY,
-            core_goal="find that thing",
-        )
+        qd = QueryDecomposition(core_goal="find that thing")
         assert qd.prefer_code is False
-        assert qd.time_range_days == 90
-        assert qd.entities == []
+        assert qd.prefer_recent is False
+        assert qd.entities == {}
         assert qd.search_variants == []
+        assert qd.intent == "vague_memory"
+        assert qd.metadata_filters == {}
 
     def test_full_instantiation(self) -> None:
         qd = QueryDecomposition(
-            intent=SearchIntent.ERROR_RECALL,
             core_goal="fix import error",
-            entities=["import", "ModuleNotFoundError"],
             search_variants=["python import error fix", "ModuleNotFoundError resolution"],
-            what_should_match="import error",
-            what_should_not_match="syntax error",
+            entities={"technologies": ["python"], "concepts": ["import", "ModuleNotFoundError"]},
+            intent="error_recall",
+            metadata_filters={"project": "myproject"},
             prefer_code=True,
             prefer_recent=True,
-            time_range_days=30,
         )
-        assert qd.intent == SearchIntent.ERROR_RECALL
+        assert qd.intent == "error_recall"
         assert len(qd.entities) == 2
         assert len(qd.search_variants) == 2
         assert qd.prefer_code is True
+        assert qd.metadata_filters == {"project": "myproject"}
 
 
 class TestSearchResult:

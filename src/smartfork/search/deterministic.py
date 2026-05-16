@@ -117,25 +117,17 @@ class QueryParser:
         # Generate search variants
         variants = self._generate_variants(query, intent)
 
-        # Determine what should/shouldn't match
-        what_should_match = query
-        what_should_not_match = ""
-
         # Temporal preference
         prefer_recent = intent == SearchIntent.TEMPORAL_LOOKUP
         prefer_code = intent in (SearchIntent.IMPLEMENTATION_LOOKUP, SearchIntent.ERROR_RECALL)
-        time_range = 7 if prefer_recent else 90
 
         return QueryDecomposition(
-            intent=intent,
             core_goal=query,
-            entities=entities,
             search_variants=variants,
-            what_should_match=what_should_match,
-            what_should_not_match=what_should_not_match,
+            entities={"technologies": entities},
+            intent=intent.value,
             prefer_code=prefer_code,
             prefer_recent=prefer_recent,
-            time_range_days=time_range,
         )
 
     def _detect_intent(self, query_lower: str) -> SearchIntent:
@@ -524,7 +516,14 @@ class DeterministicSearchEngine:
                             unique_tags.append(tag)
 
                     # Prioritize tags matching query entities, then limit to 5
-                    query_entities = {e.lower() for e in decomposition.entities}
+                    entity_values: list[str] = []
+                    for v in decomposition.entities.values():
+                        if isinstance(v, list):
+                            entity_values.extend(str(item) for item in v)
+                        else:
+                            entity_values.append(str(v))
+                    query_entities = {e.lower() for e in entity_values}
+
                     def _tag_priority(
                         tag: str, _entities: set[str] = query_entities
                     ) -> tuple[int, str]:

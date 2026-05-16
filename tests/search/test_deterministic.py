@@ -14,35 +14,36 @@ class TestQueryParser:
     def test_detects_error_intent(self) -> None:
         parser = QueryParser()
         result = parser.parse("how did I fix the database error")
-        assert result.intent == SearchIntent.ERROR_RECALL
+        assert result.intent == SearchIntent.ERROR_RECALL.value
 
     def test_detects_implementation_intent(self) -> None:
         parser = QueryParser()
         result = parser.parse("how did I implement the auth system")
-        assert result.intent == SearchIntent.IMPLEMENTATION_LOOKUP
+        assert result.intent == SearchIntent.IMPLEMENTATION_LOOKUP.value
 
     def test_detects_decision_intent(self) -> None:
         parser = QueryParser()
         result = parser.parse("why did I choose postgresql over mongodb")
-        assert result.intent == SearchIntent.DECISION_HUNTING
+        assert result.intent == SearchIntent.DECISION_HUNTING.value
 
     def test_detects_temporal_intent(self) -> None:
         parser = QueryParser()
         result = parser.parse("what was I working on last week")
-        assert result.intent == SearchIntent.TEMPORAL_LOOKUP
+        assert result.intent == SearchIntent.TEMPORAL_LOOKUP.value
 
     def test_defaults_to_vague_memory(self) -> None:
         parser = QueryParser()
         result = parser.parse("something about that thing")
-        assert result.intent == SearchIntent.VAGUE_MEMORY
+        assert result.intent == SearchIntent.VAGUE_MEMORY.value
 
     def test_extracts_tech_entities(self) -> None:
         parser = QueryParser()
         result = parser.parse("fix python fastapi jwt docker error")
-        assert "python" in result.entities
-        assert "fastapi" in result.entities
-        assert "jwt" in result.entities
-        assert "docker" in result.entities
+        techs = result.entities.get("technologies", [])
+        assert "python" in techs
+        assert "fastapi" in techs
+        assert "jwt" in techs
+        assert "docker" in techs
 
     def test_generates_search_variants(self) -> None:
         parser = QueryParser()

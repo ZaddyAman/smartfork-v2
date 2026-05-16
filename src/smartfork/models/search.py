@@ -2,6 +2,9 @@
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, Field
 
 
 class SearchIntent(StrEnum):
@@ -16,19 +19,16 @@ class SearchIntent(StrEnum):
     CONTINUATION = "continuation"
 
 
-@dataclass
-class QueryDecomposition:
+class QueryDecomposition(BaseModel):
     """Output of query understanding (deterministic or LLM-based)."""
 
-    intent: SearchIntent
     core_goal: str
-    entities: list[str] = field(default_factory=list)
-    search_variants: list[str] = field(default_factory=list)
-    what_should_match: str = ""
-    what_should_not_match: str = ""
-    prefer_code: bool = False
+    search_variants: list[str] = Field(default_factory=list)
+    entities: dict[str, Any] = Field(default_factory=dict)
+    intent: str = "vague_memory"
+    metadata_filters: dict[str, Any] = Field(default_factory=dict)
     prefer_recent: bool = False
-    time_range_days: int = 90
+    prefer_code: bool = False
 
 
 @dataclass
