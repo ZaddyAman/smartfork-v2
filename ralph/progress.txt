@@ -188,3 +188,20 @@ Started: $(date)
   - Conditional TOML serialization for *_base_url should match existing llm_base_url pattern (omit when None)
   - Legacy migration simple_fields set must include new fields or they get lost during JSON→TOML migration
 ---
+
+## 2026-05-16 - US-003
+- Implemented QueryDecomposer agent with structured output
+- Files changed: src/smartfork/models/search.py, src/smartfork/providers/protocols.py, src/smartfork/providers/llm.py, src/smartfork/search/deterministic.py, src/smartfork/search/agentic.py, tests/models/test_search.py, tests/search/test_deterministic.py, tests/search/test_agentic.py
+- Files created: src/smartfork/search/decomposer.py, tests/search/test_decomposer.py
+- Converted QueryDecomposition from dataclass to Pydantic BaseModel with new fields (core_goal, search_variants, entities, intent, metadata_filters, prefer_recent, prefer_code)
+- Added temperature parameter to LLMProvider.complete_structured() and all implementations
+- Updated downstream consumers (deterministic.py, agentic.py) to use new QueryDecomposition fields
+- Created QueryDecomposer class with rich prompt including good/bad examples
+- Graceful fallback returns original query as single variant
+- 41 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Converting a widely-used dataclass to Pydantic BaseModel requires updating ALL downstream consumers atomically
+  - AgenticSearchEngine._refine_query() had latent bug: empty variants list caused ThreadPoolExecutor(max_workers=0) crash
+  - complete_structured() temperature needs to be forwarded through instructor/openai/anthropic APIs
+  - MockLLM in tests needs signature updates when protocol changes
+---
