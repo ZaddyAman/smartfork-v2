@@ -16,6 +16,9 @@ REQUIRED_KEYS = {
     "match_score",
     "project_name",
     "content",
+    "task_raw",
+    "summary_doc",
+    "reasoning_docs",
     "tags",
     "files_summary",
     "time_ago",
@@ -160,6 +163,7 @@ class TestParallelRetriever:
         mock_metadata.get_session.return_value = {
             "summary_doc": "full summary",
             "task_raw": "task",
+            "reasoning_docs": '["reasoning one", "reasoning two"]',
             "tech_tags": '["python", "rust"]',
             "domains": '["backend"]',
             "languages": '["python"]',
@@ -190,6 +194,9 @@ class TestParallelRetriever:
         assert len(results) == 1
         candidate = results[0]
         assert candidate["content"] == "full summary"
+        assert candidate["task_raw"] == "task"
+        assert candidate["summary_doc"] == "full summary"
+        assert candidate["reasoning_docs"] == ["reasoning one", "reasoning two"]
         assert set(candidate["tags"]) == {"python", "rust", "backend"}
         assert candidate["files_summary"] == "1 file edited"
         assert candidate["duration"] == "45 min"

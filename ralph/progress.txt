@@ -205,3 +205,22 @@ Started: $(date)
   - complete_structured() temperature needs to be forwarded through instructor/openai/anthropic APIs
   - MockLLM in tests needs signature updates when protocol changes
 ---
+
+## 2026-05-16 - US-004
+- Implemented ParallelRetriever that runs deterministic search across variants
+- Files changed: src/smartfork/search/__init__.py
+- Files created: src/smartfork/search/parallel_retriever.py, tests/search/test_parallel_retriever.py
+- ParallelRetriever uses ThreadPoolExecutor(max_workers=min(5, len(variants))) to search each variant in parallel
+- Each variant calls deterministic_engine.search(variant, top_k=top_k * 2)
+- Extracts session_id, title, match_score, project_name from ResultCards
+- Enriches candidates with full session content from metadata_store when available
+- Deduplicates by session_id keeping highest match_score
+- Graceful fallback: catches exceptions per variant, logs warning, continues with remaining
+- 9 tests covering parallel calls, deduplication, fallback, empty results, metadata enrichment, max-workers
+- 43 total search tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - ResultCard doesn't contain full session content; must fetch from metadata_store.get_session(session_id)
+  - Deduplication should preserve metadata from the higher-scored entry
+  - ThreadPoolExecutor max_workers=0 crashes; guard with min(5, len(variants)) and handle empty variants early
+  - Candidate dict schema should be consistent across retriever, reranker, judge, and synthesis stages
+---

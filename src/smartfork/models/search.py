@@ -51,6 +51,20 @@ class SearchResult:
     task_preview: str = ""
 
 
+class RerankResult(BaseModel):
+    """Single candidate relevance scoring from LLM reranker."""
+
+    session_id: str
+    relevance_score: float
+    reason: str = ""
+
+
+class BatchRerankResult(BaseModel):
+    """Batch output from LLM reranker."""
+
+    rankings: list[RerankResult] = Field(default_factory=list)
+
+
 @dataclass
 class ResultCard:
     """A formatted result card for display in TUI/CLI."""

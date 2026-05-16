@@ -87,8 +87,21 @@ class ParallelRetriever:
                 session = metadata_store.get_session(card.session_id)
                 if session is not None:
                     # Full content
-                    content = session.get("summary_doc", "") or session.get("task_raw", "")
+                    task_raw = session.get("task_raw", "")
+                    summary_doc = session.get("summary_doc", "")
+                    content = summary_doc or task_raw
                     candidate["content"] = content
+                    candidate["task_raw"] = task_raw
+                    candidate["summary_doc"] = summary_doc
+
+                    # Reasoning docs
+                    reasoning_raw = session.get("reasoning_docs", "[]")
+                    if isinstance(reasoning_raw, list):
+                        candidate["reasoning_docs"] = reasoning_raw
+                    else:
+                        candidate["reasoning_docs"] = metadata_store._deserialize_list(
+                            reasoning_raw
+                        )
 
                     # Tags
                     tech_tags = metadata_store._deserialize_list(
@@ -144,6 +157,9 @@ class ParallelRetriever:
 
         # Fallback to ResultCard fields
         candidate["content"] = card.excerpt
+        candidate["task_raw"] = card.excerpt
+        candidate["summary_doc"] = ""
+        candidate["reasoning_docs"] = []
         candidate["tags"] = card.tags
         candidate["files_summary"] = card.files_summary
         candidate["time_ago"] = card.time_ago

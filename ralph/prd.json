@@ -92,7 +92,7 @@
         "ruff clean on parallel_retriever.py"
       ],
       "priority": 4,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-005",
