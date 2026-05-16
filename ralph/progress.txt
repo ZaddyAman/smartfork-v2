@@ -224,3 +224,22 @@ Started: $(date)
   - ThreadPoolExecutor max_workers=0 crashes; guard with min(5, len(variants)) and handle empty variants early
   - Candidate dict schema should be consistent across retriever, reranker, judge, and synthesis stages
 ---
+
+## 2026-05-16 - US-005
+- Implemented LLM-based reranker that scores candidates against the original query
+- Files changed: src/smartfork/models/search.py, src/smartfork/models/__init__.py, src/smartfork/search/__init__.py, src/smartfork/search/parallel_retriever.py, tests/search/test_parallel_retriever.py
+- Files created: src/smartfork/search/reranker.py, tests/search/test_reranker.py
+- Added RerankResult and BatchRerankResult Pydantic models
+- RerankerAgent batches candidates into groups of 5, calls complete_structured with temperature=0.1
+- Prompt includes query + task_raw + summary_doc + top 3 keyword-filtered reasoning_docs
+- Re-sorts by relevance_score descending, returns top_n (default 15)
+- Graceful fallback on LLM failure: logs warning, returns candidates sorted by match_score
+- Updated ParallelRetriever to include separate task_raw, summary_doc, reasoning_docs fields
+- 22 reranker tests + 65 total search tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - ParallelRetriever should export separate content fields (task_raw, summary_doc, reasoning_docs) for downstream agents
+  - Keyword filtering: split query into lowercase tokens, filter reasoning_docs, fallback to first 3 truncated if < 3 matches
+  - LLM may hallucinate unknown session_ids — ignore them rather than crash
+  - Missed candidates in a batch should get relevance_score=0.0 so they still appear in results
+  - complete_structured returns object — validate isinstance before using
+---

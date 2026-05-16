@@ -10,7 +10,9 @@ from smartfork.models.config import (
 from smartfork.models.fork import ContextReport, ForkIntent
 from smartfork.models.progress import ProgressEvent
 from smartfork.models.search import (
+    BatchJudgeResult,
     BatchRerankResult,
+    JudgeOutput,
     QueryDecomposition,
     RerankResult,
     ResultCard,
@@ -42,6 +44,8 @@ __all__ = [
     "ResultCard",
     "RerankResult",
     "BatchRerankResult",
+    "JudgeOutput",
+    "BatchJudgeResult",
     # Fork
     "ForkIntent",
     "ContextReport",

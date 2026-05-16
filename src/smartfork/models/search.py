@@ -83,3 +83,19 @@ class ResultCard:
     excerpt: str = ""
     tags: list[str] = field(default_factory=list)
     fork_command: str = ""
+
+
+class JudgeOutput(BaseModel):
+    """Single judgment from the batch judge agent."""
+
+    session_id: str
+    relevance_score: float
+    matches_query: bool
+    reason: str
+    key_snippet: str
+
+
+class BatchJudgeResult(BaseModel):
+    """Batch output from the judge agent."""
+
+    judgments: list[JudgeOutput] = Field(default_factory=list)

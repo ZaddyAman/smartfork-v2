@@ -114,7 +114,7 @@
         "ruff clean on reranker.py"
       ],
       "priority": 5,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-006",
