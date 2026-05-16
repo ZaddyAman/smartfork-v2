@@ -156,3 +156,20 @@ Started: $(date)
   - parse_raw() should guard with is_valid_session() early to return None for nonexistent dirs
   - Fixture data must be realistic enough to test ALL extraction paths (string content, array-of-parts, reasoning, tool calls)
 ---
+
+## 2026-05-16 - US-001
+- Fixed reasoning_docs SQLite data loss and auto-migrated existing databases
+- Files changed: src/smartfork/indexer/metadata_store.py, tests/indexer/test_metadata_store.py, src/smartfork/models/session.py, src/smartfork/indexer/parser.py, src/smartfork/config.py, tests/conftest.py, tests/models/test_session.py, tests/indexer/test_parser.py
+- Added reasoning_docs column to SCHEMA_SQL with DEFAULT '[]'
+- Bound reasoning_docs in upsert_session() via _serialize_list()
+- Deserialized reasoning_docs in get_session_document() via _deserialize_list()
+- Added _ensure_schema() migration method that runs ALTER TABLE ADD COLUMN if missing
+- Migration prints yellow warning via loguru
+- Added test_reasoning_docs_round_trip test
+- 63 targeted tests passing
+- **Learnings for future iterations:**
+  - The "schema v3" in acceptance criteria refers to DB table schema, not SessionDocument.schema_version — but bumping schema_version doesn't break tests
+  - _ensure_schema() must run AFTER _init_db() so table exists before PRAGMA table_info
+  - loguru import needs to be grouped with third-party imports for ruff I001 compliance
+  - Pre-existing ruff/mypy/pytest failures in other modules (theme.py, mcp/server.py, providers/helpers.py, adapters/opencode.py) are not caused by this change
+---

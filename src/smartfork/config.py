@@ -8,7 +8,7 @@ from typing import Any
 
 import tomli_w
 from loguru import logger
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from smartfork.models.config import AgentConfig
@@ -51,6 +51,13 @@ class SmartForkConfig(BaseSettings):
     llm_provider: str = "ollama"
     llm_model: str = "qwen2.5-coder:7b"
     llm_base_url: str | None = None
+
+    strategic_llm_provider: str | None = None
+    strategic_llm_model: str | None = None
+    strategic_llm_base_url: str | None = None
+    smart_llm_provider: str | None = None
+    smart_llm_model: str | None = None
+    smart_llm_base_url: str | None = None
 
     # Indexing
     chunk_size: int = 512
@@ -96,6 +103,22 @@ class SmartForkConfig(BaseSettings):
         if str(v).startswith("~"):
             p = p.expanduser()
         return p
+
+    @model_validator(mode="after")
+    def _backfill_tiered_llms(self) -> "SmartForkConfig":
+        if self.strategic_llm_provider is None:
+            self.strategic_llm_provider = self.llm_provider
+        if self.strategic_llm_model is None:
+            self.strategic_llm_model = self.llm_model
+        if self.strategic_llm_base_url is None:
+            self.strategic_llm_base_url = self.llm_base_url
+        if self.smart_llm_provider is None:
+            self.smart_llm_provider = self.llm_provider
+        if self.smart_llm_model is None:
+            self.smart_llm_model = self.llm_model
+        if self.smart_llm_base_url is None:
+            self.smart_llm_base_url = self.llm_base_url
+        return self
 
     # ------------------------------------------------------------------ #
     # Load / Save
@@ -164,6 +187,12 @@ class SmartForkConfig(BaseSettings):
                 "llm_provider",
                 "llm_model",
                 "llm_base_url",
+                "strategic_llm_provider",
+                "strategic_llm_model",
+                "strategic_llm_base_url",
+                "smart_llm_provider",
+                "smart_llm_model",
+                "smart_llm_base_url",
             ):
                 if key in data["models"]:
                     flat[key] = data["models"][key]
@@ -227,9 +256,17 @@ class SmartForkConfig(BaseSettings):
             "embedding_dimensions": self.embedding_dimensions,
             "llm_provider": self.llm_provider,
             "llm_model": self.llm_model,
+            "strategic_llm_provider": self.strategic_llm_provider,
+            "strategic_llm_model": self.strategic_llm_model,
+            "smart_llm_provider": self.smart_llm_provider,
+            "smart_llm_model": self.smart_llm_model,
         }
         if self.llm_base_url is not None:
             models["llm_base_url"] = self.llm_base_url
+        if self.strategic_llm_base_url is not None:
+            models["strategic_llm_base_url"] = self.strategic_llm_base_url
+        if self.smart_llm_base_url is not None:
+            models["smart_llm_base_url"] = self.smart_llm_base_url
 
         indexing = {
             "chunk_size": self.chunk_size,
@@ -373,6 +410,12 @@ class SmartForkConfig(BaseSettings):
             "llm_provider",
             "llm_model",
             "llm_base_url",
+            "strategic_llm_provider",
+            "strategic_llm_model",
+            "strategic_llm_base_url",
+            "smart_llm_provider",
+            "smart_llm_model",
+            "smart_llm_base_url",
             "chunk_size",
             "chunk_overlap",
             "default_search_results",

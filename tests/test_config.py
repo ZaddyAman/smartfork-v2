@@ -25,10 +25,10 @@ class TestConfigDefaults:
         assert cfg.llm_provider == "ollama"
 
     @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
-    def test_default_embedding_dimensions_is_512(self, mock_home: Path) -> None:
+    def test_default_embedding_dimensions_is_1024(self, mock_home: Path) -> None:
         from smartfork.config import SmartForkConfig
         cfg = SmartForkConfig()
-        assert cfg.embedding_dimensions == 512
+        assert cfg.embedding_dimensions == 1024
 
     @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
     def test_agents_default_to_empty_dict(self, mock_home: Path) -> None:
@@ -290,3 +290,122 @@ class TestLegacyProperty:
         result = cfg.kilo_code_tasks_path
         # Default should be resolvable
         assert isinstance(result, Path)
+
+
+class TestTieredLLMConfig:
+    """Tests for tiered LLM configuration (strategic_llm + smart_llm)."""
+
+    @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
+    def test_tiered_llm_fields_default_to_base(self, mock_home: Path) -> None:
+        from smartfork.config import SmartForkConfig
+
+        cfg = SmartForkConfig(
+            llm_provider="anthropic",
+            llm_model="claude-3-opus",
+            llm_base_url="https://api.anthropic.com",
+        )
+        assert cfg.strategic_llm_provider == "anthropic"
+        assert cfg.strategic_llm_model == "claude-3-opus"
+        assert cfg.strategic_llm_base_url == "https://api.anthropic.com"
+        assert cfg.smart_llm_provider == "anthropic"
+        assert cfg.smart_llm_model == "claude-3-opus"
+        assert cfg.smart_llm_base_url == "https://api.anthropic.com"
+
+    @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
+    def test_tiered_llm_fields_can_be_overridden(self, mock_home: Path) -> None:
+        from smartfork.config import SmartForkConfig
+
+        cfg = SmartForkConfig(
+            llm_provider="anthropic",
+            llm_model="claude-3-opus",
+            llm_base_url="https://api.anthropic.com",
+            strategic_llm_provider="openai",
+            strategic_llm_model="gpt-4o",
+            strategic_llm_base_url="https://api.openai.com",
+            smart_llm_provider="ollama",
+            smart_llm_model="qwen2.5-coder:14b",
+            smart_llm_base_url="http://localhost:11434",
+        )
+        assert cfg.strategic_llm_provider == "openai"
+        assert cfg.strategic_llm_model == "gpt-4o"
+        assert cfg.strategic_llm_base_url == "https://api.openai.com"
+        assert cfg.smart_llm_provider == "ollama"
+        assert cfg.smart_llm_model == "qwen2.5-coder:14b"
+        assert cfg.smart_llm_base_url == "http://localhost:11434"
+        # Base fields should remain unchanged
+        assert cfg.llm_provider == "anthropic"
+        assert cfg.llm_model == "claude-3-opus"
+        assert cfg.llm_base_url == "https://api.anthropic.com"
+
+    def test_tiered_llm_save_load_round_trip(self, tmp_path: Path) -> None:
+        from smartfork.config import SmartForkConfig
+
+        config_file = tmp_path / "config.toml"
+        with patch("smartfork.config.CONFIG_DIR", tmp_path), \
+             patch("smartfork.config.CONFIG_FILE", config_file), \
+             patch("pathlib.Path.home", return_value=tmp_path):
+            cfg = SmartForkConfig(
+                llm_provider="anthropic",
+                llm_model="claude-3-opus",
+                strategic_llm_provider="openai",
+                strategic_llm_model="gpt-4o",
+                smart_llm_provider="ollama",
+                smart_llm_model="qwen2.5-coder:14b",
+            )
+            cfg.save()
+
+            loaded = SmartForkConfig.load()
+            assert loaded.llm_provider == "anthropic"
+            assert loaded.llm_model == "claude-3-opus"
+            assert loaded.strategic_llm_provider == "openai"
+            assert loaded.strategic_llm_model == "gpt-4o"
+            assert loaded.smart_llm_provider == "ollama"
+            assert loaded.smart_llm_model == "qwen2.5-coder:14b"
+
+    def test_tiered_llm_toml_serialization(self, tmp_path: Path) -> None:
+        from smartfork.config import SmartForkConfig
+
+        config_file = tmp_path / "config.toml"
+        with patch("smartfork.config.CONFIG_DIR", tmp_path), \
+             patch("smartfork.config.CONFIG_FILE", config_file), \
+             patch("pathlib.Path.home", return_value=tmp_path):
+            cfg = SmartForkConfig(
+                strategic_llm_provider="openai",
+                strategic_llm_model="gpt-4o",
+                strategic_llm_base_url="https://api.openai.com",
+                smart_llm_provider="ollama",
+                smart_llm_model="qwen2.5-coder:14b",
+                smart_llm_base_url="http://localhost:11434",
+            )
+            cfg.save()
+
+            with open(config_file, "rb") as f:
+                data = tomli.load(f)
+            assert data["models"]["strategic_llm_provider"] == "openai"
+            assert data["models"]["strategic_llm_model"] == "gpt-4o"
+            assert data["models"]["strategic_llm_base_url"] == "https://api.openai.com"
+            assert data["models"]["smart_llm_provider"] == "ollama"
+            assert data["models"]["smart_llm_model"] == "qwen2.5-coder:14b"
+            assert data["models"]["smart_llm_base_url"] == "http://localhost:11434"
+
+    def test_tiered_llm_base_url_omitted_when_none(self, tmp_path: Path) -> None:
+        from smartfork.config import SmartForkConfig
+
+        config_file = tmp_path / "config.toml"
+        with patch("smartfork.config.CONFIG_DIR", tmp_path), \
+             patch("smartfork.config.CONFIG_FILE", config_file), \
+             patch("pathlib.Path.home", return_value=tmp_path):
+            cfg = SmartForkConfig(
+                llm_base_url=None,
+                strategic_llm_provider="openai",
+                strategic_llm_model="gpt-4o",
+                smart_llm_provider="ollama",
+                smart_llm_model="qwen2.5-coder:14b",
+            )
+            cfg.save()
+
+            with open(config_file, "rb") as f:
+                data = tomli.load(f)
+            assert "llm_base_url" not in data["models"]
+            assert "strategic_llm_base_url" not in data["models"]
+            assert "smart_llm_base_url" not in data["models"]
