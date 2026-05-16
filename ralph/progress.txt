@@ -243,3 +243,22 @@ Started: $(date)
   - Missed candidates in a batch should get relevance_score=0.0 so they still appear in results
   - complete_structured returns object — validate isinstance before using
 ---
+
+## 2026-05-16 - US-006
+- Implemented BatchJudgeAgent that reads full content and drops false positives
+- Files changed: src/smartfork/models/search.py, src/smartfork/models/__init__.py, src/smartfork/search/__init__.py
+- Files created: src/smartfork/search/judge.py, tests/search/test_judge.py
+- Added JudgeOutput and BatchJudgeResult Pydantic models
+- BatchJudgeAgent batches candidates into groups of 5, calls complete_structured with temperature=0.1
+- Smart content selection: filters reasoning_docs and files_edited by query keywords + entity names; fallback to first 3 truncated to 1000 chars
+- Prompt includes query, core_goal, intent, and candidate content
+- Drops candidates where matches_query=False, sorts by relevance_score descending, returns top 5
+- Graceful fallback on LLM failure: returns all candidates with match_score as relevance_score, empty reason/key_snippet
+- 16 tests covering dropping, sorting, top-5, fallback, batching, prompt content, empty candidates
+- ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - qd.entities values may be lists or nested dicts — flatten/stringify for keyword matching
+  - Deduplicate by session_id before sorting to avoid duplicate entries from batch boundaries
+  - Fallback docs should be truncated to ~1000 chars to stay within token limits
+  - Judge should return JudgeOutput objects, not candidate dicts — this is a different return type than retriever/reranker
+---

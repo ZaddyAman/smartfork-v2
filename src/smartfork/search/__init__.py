@@ -6,6 +6,7 @@ from smartfork.search.deterministic import DeterministicSearchEngine, QueryParse
 from smartfork.search.judge import BatchJudgeAgent
 from smartfork.search.parallel_retriever import ParallelRetriever
 from smartfork.search.reranker import RerankerAgent
+from smartfork.search.synthesis import SynthesisAgent
 
 __all__ = [
     "AgenticSearchEngine",
@@ -15,4 +16,5 @@ __all__ = [
     "QueryParser",
     "RerankerAgent",
     "SearchCache",
+    "SynthesisAgent",
 ]
