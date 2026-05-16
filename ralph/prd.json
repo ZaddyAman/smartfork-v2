@@ -202,7 +202,7 @@
         "ruff clean on commands.py"
       ],
       "priority": 9,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-010",

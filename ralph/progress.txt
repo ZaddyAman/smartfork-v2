@@ -299,3 +299,22 @@ Started: $(date)
   - Early exit for empty candidates avoids unnecessary LLM calls
   - Progress lines should use print() for simplicity (may need Rich console later for TUI)
 ---
+
+## 2026-05-16 - US-009
+- Wired SearchOrchestrator into CLI search command with --fast fallback
+- Files changed: src/smartfork/cli/commands.py, src/smartfork/search/judge.py, src/smartfork/search/orchestrator.py, tests/cli/test_commands.py, tests/search/test_judge.py, tests/search/test_orchestrator.py
+- Added --fast flag to bypass orchestrator and use DeterministicSearchEngine directly
+- Default path instantiates SearchOrchestrator with all 5 stages
+- LLM setup failure shows clear error + suggests --fast
+- Card display updated: title bar shows [rank] title · badge · project_name · time_ago; body shows excerpt, tags, files_summary; footer shows fork_command
+- Empty results print 'No relevant sessions found.' + judge reasoning from last_empty_reasoning
+- Search duration footer shows mode: 'orchestrator (decompose + parallel + rerank + judge + synthesize)' or 'deterministic (...)'
+- Added rejected_judgments to BatchJudgeAgent and last_empty_reasoning to SearchOrchestrator
+- 53 tests passing (CLI + search), ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - BatchJudgeAgent should store rejected judgments before filtering them out — needed for CLI empty-results messaging
+  - SearchOrchestrator needs instance attribute (last_empty_reasoning) to communicate empty-result reasons to CLI without changing return type
+  - When mocking SearchOrchestrator in CLI tests, also mock Ollama availability checks since get_llm is called inside the command
+  - Reuse LLM instance when strategic_llm == smart_llm to avoid double instantiation
+  - Card display refactoring should handle both orchestrator badges (Rich markup) and deterministic badges
+---

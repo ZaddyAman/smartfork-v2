@@ -90,3 +90,18 @@ class TestQueryDecomposer:
         decomposer = QueryDecomposer(llm=mock_llm)
         result = decomposer.decompose("find session")
         assert len(result.search_variants) >= 1
+
+    def test_search_variants_count_in_range(self, mock_llm: MagicMock) -> None:
+        mock_llm.complete_structured.return_value = QueryDecomposition(
+            core_goal="test",
+            search_variants=[
+                "variant one",
+                "variant two",
+                "variant three",
+                "variant four",
+                "variant five",
+            ],
+        )
+        decomposer = QueryDecomposer(llm=mock_llm)
+        result = decomposer.decompose("test")
+        assert 3 <= len(result.search_variants) <= 5
