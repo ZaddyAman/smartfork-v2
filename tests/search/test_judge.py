@@ -264,6 +264,48 @@ class TestBatchJudgeAgent:
         assert result == []
         mock_llm.complete_structured.assert_not_called()
 
+    def test_rejected_judgments_stored(self, mock_llm: MagicMock, qd: QueryDecomposition) -> None:
+        mock_llm.complete_structured.return_value = BatchJudgeResult(
+            judgments=[
+                JudgeOutput(
+                    session_id="s1",
+                    relevance_score=0.9,
+                    matches_query=True,
+                    reason="Direct match",
+                    key_snippet="fix auth",
+                ),
+                JudgeOutput(
+                    session_id="s2",
+                    relevance_score=0.8,
+                    matches_query=False,
+                    reason="Not relevant",
+                    key_snippet="",
+                ),
+                JudgeOutput(
+                    session_id="s3",
+                    relevance_score=0.7,
+                    matches_query=False,
+                    reason="Wrong topic",
+                    key_snippet="",
+                ),
+            ]
+        )
+        agent = BatchJudgeAgent(llm=mock_llm)
+        candidates = [
+            _make_candidate("s1", 0.5),
+            _make_candidate("s2", 0.5),
+            _make_candidate("s3", 0.5),
+        ]
+        result = agent.judge(candidates, "fix auth", qd)
+
+        assert len(result) == 1
+        assert result[0].session_id == "s1"
+        assert len(agent.rejected_judgments) == 2
+        assert agent.rejected_judgments[0].session_id == "s2"
+        assert agent.rejected_judgments[0].reason == "Not relevant"
+        assert agent.rejected_judgments[1].session_id == "s3"
+        assert agent.rejected_judgments[1].reason == "Wrong topic"
+
     def test_prompt_includes_matching_content(self, mock_llm: MagicMock, qd: QueryDecomposition) -> None:
         mock_llm.complete_structured.return_value = BatchJudgeResult(
             judgments=[

@@ -37,6 +37,20 @@ class SearchOrchestrator:
         self.reranker = reranker
         self.judge = judge
         self.synthesis = synthesis
+        self.last_empty_reasoning: str = ""
+
+    def _build_empty_reasoning(self) -> str:
+        """Build a human-readable explanation for why no results were returned."""
+        rejected = getattr(self.judge, "rejected_judgments", [])
+        if not rejected:
+            return ""
+        reasons: list[str] = []
+        for j in rejected[:3]:
+            if j.reason:
+                reasons.append(f"{j.session_id}: {j.reason}")
+        if reasons:
+            return f"Reviewed {len(rejected)} candidates but none matched. " + "; ".join(reasons)
+        return f"Reviewed {len(rejected)} candidates but none matched your query."
 
     def search(
         self,
@@ -56,6 +70,8 @@ class SearchOrchestrator:
         Returns:
             List of ResultCard objects, sliced to at most top_k.
         """
+        self.last_empty_reasoning = ""
+
         # Stage 1: Decompose
         print("Decomposing query...")
         try:
@@ -109,6 +125,7 @@ class SearchOrchestrator:
             return self._build_warning_cards(reranked, top_k)
 
         if not judgments:
+            self.last_empty_reasoning = self._build_empty_reasoning()
             return []
 
         # Stage 5: Synthesize

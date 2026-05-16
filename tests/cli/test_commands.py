@@ -60,28 +60,99 @@ class TestIndexCommand:
 
 
 class TestSearchCommand:
-    @patch("smartfork.search.deterministic.DeterministicSearchEngine")
-    def test_basic_search(self, mock_engine_cls, runner: CliRunner) -> None:
+    @patch("smartfork.search.orchestrator.SearchOrchestrator")
+    @patch("smartfork.providers.llm.OllamaLLM")
+    @patch("smartfork.providers.helpers.check_ollama_available")
+    def test_basic_search(self, mock_check, mock_llm_cls, mock_orchestrator_cls, runner: CliRunner) -> None:
         from smartfork.models.search import ResultCard
-        mock_engine = mock_engine_cls.return_value
-        mock_engine.search.return_value = [
+        mock_check.return_value = True
+        mock_orchestrator = mock_orchestrator_cls.return_value
+        mock_orchestrator.search.return_value = [
             ResultCard(
                 rank=1, session_id="sess-123", title="Fix auth bug", project_name="auth-service",
-                match_score=0.95, time_ago="2 days ago", excerpt="Fixed the login flow."
+                match_score=0.95, time_ago="2 days ago", excerpt="Fixed the login flow.",
+                tags=["python", "auth"], files_summary="3 files edited", fork_command="smartfork fork sess-123",
             )
         ]
         result = runner.invoke(app, ["search", "auth bug"])
         assert result.exit_code == 0
         assert "Fix auth bug" in result.output
         assert "auth-service" in result.output
+        assert "orchestrator" in result.output
 
-    @patch("smartfork.search.deterministic.DeterministicSearchEngine")
-    def test_no_results(self, mock_engine_cls, runner: CliRunner) -> None:
-        mock_engine = mock_engine_cls.return_value
-        mock_engine.search.return_value = []
+    @patch("smartfork.search.orchestrator.SearchOrchestrator")
+    @patch("smartfork.providers.llm.OllamaLLM")
+    @patch("smartfork.providers.helpers.check_ollama_available")
+    def test_no_results(self, mock_check, mock_llm_cls, mock_orchestrator_cls, runner: CliRunner) -> None:
+        mock_check.return_value = True
+        mock_orchestrator = mock_orchestrator_cls.return_value
+        mock_orchestrator.search.return_value = []
         result = runner.invoke(app, ["search", "auth bug"])
         assert result.exit_code == 0
-        assert "No results found" in result.output
+        assert "No relevant sessions found" in result.output
+
+    @patch("smartfork.search.deterministic.DeterministicSearchEngine")
+    def test_fast_flag(self, mock_engine_cls, runner: CliRunner) -> None:
+        from smartfork.models.search import ResultCard
+        mock_engine = mock_engine_cls.return_value
+        mock_engine.search.return_value = [
+            ResultCard(
+                rank=1, session_id="sess-456", title="Fast result", project_name="fast-project",
+                match_score=0.85, time_ago="1 day ago", excerpt="Fast path result.",
+                tags=["fast"], files_summary="1 file edited", fork_command="smartfork fork sess-456",
+            )
+        ]
+        result = runner.invoke(app, ["search", "--fast", "fast query"])
+        assert result.exit_code == 0
+        assert "Fast result" in result.output
+        assert "fast-project" in result.output
+        assert "deterministic" in result.output
+
+    @patch("smartfork.providers.llm.get_llm")
+    def test_llm_failure_suggests_fast(self, mock_get_llm, runner: CliRunner) -> None:
+        mock_get_llm.side_effect = RuntimeError("Ollama not available")
+        result = runner.invoke(app, ["search", "auth bug"])
+        assert result.exit_code == 1
+        assert "LLM setup failed" in result.output
+        assert "--fast" in result.output
+
+    @patch("smartfork.search.orchestrator.SearchOrchestrator")
+    @patch("smartfork.providers.llm.OllamaLLM")
+    @patch("smartfork.providers.helpers.check_ollama_available")
+    def test_empty_results_shows_reasoning(self, mock_check, mock_llm_cls, mock_orchestrator_cls, runner: CliRunner) -> None:
+        mock_check.return_value = True
+        mock_orchestrator = mock_orchestrator_cls.return_value
+        mock_orchestrator.search.return_value = []
+        mock_orchestrator.last_empty_reasoning = "Reviewed 3 candidates but none matched. s1: not relevant"
+        result = runner.invoke(app, ["search", "auth bug"])
+        assert result.exit_code == 0
+        assert "No relevant sessions found" in result.output
+        assert "Reviewed 3 candidates" in result.output
+
+    @patch("smartfork.search.orchestrator.SearchOrchestrator")
+    @patch("smartfork.providers.llm.OllamaLLM")
+    @patch("smartfork.providers.helpers.check_ollama_available")
+    def test_card_display_format(self, mock_check, mock_llm_cls, mock_orchestrator_cls, runner: CliRunner) -> None:
+        from smartfork.models.search import ResultCard
+        mock_check.return_value = True
+        mock_orchestrator = mock_orchestrator_cls.return_value
+        mock_orchestrator.search.return_value = [
+            ResultCard(
+                rank=1, session_id="sess-789", title="Card Title", project_name="my-project",
+                match_score=0.92, time_ago="3 hours ago", excerpt="Query-aware excerpt here.",
+                quality_badge="[green]Strong match[/green]",
+                tags=["python", "api"], files_summary="5 files edited", fork_command="smartfork fork sess-789",
+            )
+        ]
+        result = runner.invoke(app, ["search", "card test"])
+        assert result.exit_code == 0
+        assert "Card Title" in result.output
+        assert "my-project" in result.output
+        assert "3 hours ago" in result.output
+        assert "Query-aware excerpt here" in result.output
+        assert "tags:" in result.output
+        assert "5 files edited" in result.output
+        assert "smartfork fork sess-789" in result.output
 
 
 class TestForkCommand:

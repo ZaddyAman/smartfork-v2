@@ -136,6 +136,7 @@ class BatchJudgeAgent:
             llm: An LLMProvider that supports complete_structured().
         """
         self.llm = llm
+        self.rejected_judgments: list[JudgeOutput] = []
 
     def judge(
         self,
@@ -159,6 +160,8 @@ class BatchJudgeAgent:
             List of JudgeOutput for candidates that match_query=True,
             sorted by relevance_score descending, top top_n.
         """
+        self.rejected_judgments = []
+
         if not candidates:
             return []
 
@@ -219,6 +222,7 @@ class BatchJudgeAgent:
                 continue
             seen.add(sid)
             if not judgment.matches_query:
+                self.rejected_judgments.append(judgment)
                 continue
             if sid not in candidate_map:
                 logger.warning(

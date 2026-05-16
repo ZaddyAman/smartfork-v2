@@ -281,3 +281,21 @@ Started: $(date)
   - Candidate dicts should have all metadata fields; use .get() with defaults for safety
   - Empty list return acts as the "no relevant sessions" flag for CLI
 ---
+
+## 2026-05-16 - US-008
+- Implemented SearchOrchestrator that wires all stages into a pipeline
+- Files changed: src/smartfork/search/parallel_retriever.py, src/smartfork/search/judge.py, src/smartfork/search/__init__.py, tests/search/test_parallel_retriever.py
+- Files created: src/smartfork/search/orchestrator.py, tests/search/test_orchestrator.py
+- SearchOrchestrator implements 5-stage pipeline: decompose → retrieve → rerank → judge → synthesize
+- Progress reporting prints status lines for each stage
+- Graceful degradation: decomposer fail → original query; reranker fail → deterministic scores; judge fail → warning-badge cards; synthesis fail → raw cards
+- project_filter and quality_filter passed through to retriever
+- Added top_n parameter to BatchJudgeAgent.judge() to replace hardcoded _TOP_N
+- 12 orchestrator tests + 110 total search tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - ParallelRetriever needs to forward project_filter/quality_filter to deterministic_engine.search()
+  - Judge fallback should build ResultCards directly with warning badges, bypassing SynthesisAgent
+  - Synthesis fallback should build raw ResultCards from judgments/candidates deterministically
+  - Early exit for empty candidates avoids unnecessary LLM calls
+  - Progress lines should use print() for simplicity (may need Rich console later for TUI)
+---

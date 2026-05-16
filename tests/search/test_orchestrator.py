@@ -283,6 +283,30 @@ class TestJudgeDropsAll:
         assert result == []
         orchestrator.synthesis.synthesize.assert_not_called()
 
+    def test_last_empty_reasoning_populated(self, orchestrator: SearchOrchestrator) -> None:
+        from smartfork.models.search import JudgeOutput
+
+        orchestrator.decomposer.decompose.return_value = _make_qd()
+        orchestrator.retriever.retrieve.return_value = [_make_candidate("s1")]
+        orchestrator.reranker.rerank.return_value = [_make_candidate("s1", relevance_score=0.9)]
+        orchestrator.judge.judge.return_value = []
+        orchestrator.judge.rejected_judgments = [
+            JudgeOutput(
+                session_id="s1",
+                relevance_score=0.3,
+                matches_query=False,
+                reason="Not about the query topic",
+                key_snippet="",
+            )
+        ]
+
+        result = orchestrator.search("test query")
+
+        assert result == []
+        assert orchestrator.last_empty_reasoning != ""
+        assert "s1" in orchestrator.last_empty_reasoning
+        assert "Not about the query topic" in orchestrator.last_empty_reasoning
+
 
 class TestEmptyCandidates:
     def test_returns_empty_list(self, orchestrator: SearchOrchestrator) -> None:

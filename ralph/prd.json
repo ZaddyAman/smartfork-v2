@@ -180,7 +180,7 @@
         "ruff clean on orchestrator.py"
       ],
       "priority": 8,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-009",

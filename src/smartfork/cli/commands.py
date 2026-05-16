@@ -84,7 +84,7 @@ def index(
     except Exception as e:
         error(f"Embedder not available: {e}")
         info("Search requires embeddings to function. Please fix the issue above and try again.")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     # Try to set up LLM for intelligence
     intelligence = None
@@ -114,7 +114,7 @@ def index(
     except RuntimeError as e:
         nl()
         error(str(e))
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     nl()
     t = get_theme()
@@ -193,11 +193,13 @@ def index(
 def search(
     query: str = typer.Argument(..., help="Search query"),
     results: int = typer.Option(5, "--results", "-n", help="Number of results"),
+    fast: bool = typer.Option(
+        False, "--fast", help="Use deterministic search directly (skip orchestrator)"
+    ),
 ) -> None:
     """Search indexed sessions."""
     from smartfork.config import get_config
     from smartfork.indexer.metadata_store import MetadataStore
-    from smartfork.search.deterministic import DeterministicSearchEngine
 
     cfg = get_config()
     store = MetadataStore(cfg.sqlite_db_path)
@@ -215,28 +217,92 @@ def search(
         pass
 
     import time
-    engine = DeterministicSearchEngine(embedder=embedder, metadata_store=store)
     search_start = time.time()
-    search_results = engine.search(query, top_k=results)
+    search_results: list[Any] = []
+    orchestrator: Any = None
+
+    if fast:
+        # Fast path: deterministic search directly
+        from smartfork.search.deterministic import DeterministicSearchEngine
+
+        engine = DeterministicSearchEngine(embedder=embedder, metadata_store=store)
+        search_results = engine.search(query, top_k=results)
+    else:
+        # Default path: SearchOrchestrator with full pipeline
+        from smartfork.providers import get_llm
+        from smartfork.search.decomposer import QueryDecomposer
+        from smartfork.search.deterministic import DeterministicSearchEngine
+        from smartfork.search.judge import BatchJudgeAgent
+        from smartfork.search.orchestrator import SearchOrchestrator
+        from smartfork.search.parallel_retriever import ParallelRetriever
+        from smartfork.search.reranker import RerankerAgent
+        from smartfork.search.synthesis import SynthesisAgent
+
+        try:
+            strategic_provider = cfg.strategic_llm_provider or cfg.llm_provider
+            strategic_model = cfg.strategic_llm_model or cfg.llm_model
+            smart_provider = cfg.smart_llm_provider or cfg.llm_provider
+            smart_model = cfg.smart_llm_model or cfg.llm_model
+
+            strategic_llm = get_llm(strategic_provider, strategic_model)
+            if strategic_provider == smart_provider and strategic_model == smart_model:
+                smart_llm = strategic_llm
+            else:
+                smart_llm = get_llm(smart_provider, smart_model)
+        except RuntimeError as e:
+            error(f"LLM setup failed: {e}")
+            info(
+                "Run with [bold]--fast[/bold] to skip the orchestrator "
+                "and use deterministic search."
+            )
+            raise typer.Exit(1) from None
+
+        decomposer = QueryDecomposer(strategic_llm)
+        deterministic_engine = DeterministicSearchEngine(embedder=embedder, metadata_store=store)
+        retriever = ParallelRetriever(deterministic_engine)
+        reranker = RerankerAgent(strategic_llm)
+        judge = BatchJudgeAgent(smart_llm)
+        synthesis = SynthesisAgent()
+        orchestrator = SearchOrchestrator(decomposer, retriever, reranker, judge, synthesis)
+
+        try:
+            search_results = orchestrator.search(query, top_k=results)
+        except RuntimeError as e:
+            error(f"Search failed: {e}")
+            info(
+                "Run with [bold]--fast[/bold] to skip the orchestrator "
+                "and use deterministic search."
+            )
+            raise typer.Exit(1) from None
+
     search_duration = time.time() - search_start
 
     header("Search")
     info(f"Query: {query}")
 
-    search_mode = "hybrid (vector + BM25)" if embedder else "keyword (BM25) only"
+    if fast:
+        search_mode = (
+            "deterministic (vector + BM25 + RRF + rerank + cards)"
+            if embedder
+            else "deterministic (BM25 + RRF + rerank + cards)"
+        )
 
-    if embedder is None and not search_results:
-        error("Search disabled! No embedding model available.")
-        info("Sessions are indexed but embeddings were not stored.")
-        info("[yellow]ollama pull qwen3-embedding:0.6b[/yellow]")
-        info("[yellow]smartfork index --full[/yellow]")
-        return
+        if embedder is None and not search_results:
+            error("Search disabled! No embedding model available.")
+            info("Sessions are indexed but embeddings were not stored.")
+            info("[yellow]ollama pull qwen3-embedding:0.6b[/yellow]")
+            info("[yellow]smartfork index --full[/yellow]")
+            return
 
-    if embedder is None and search_results:
-        warn("Vector search unavailable — results from keyword (BM25) only.")
+        if embedder is None and search_results:
+            warn("Vector search unavailable — results from keyword (BM25) only.")
+    else:
+        search_mode = "orchestrator (decompose + parallel + rerank + judge + synthesize)"
 
     if not search_results:
-        info("No results found. Try a different query or check your index.")
+        info("No relevant sessions found.")
+        if orchestrator is not None and orchestrator.last_empty_reasoning:
+            info(f"Reason: {orchestrator.last_empty_reasoning}")
         return
 
     info(f"{len(search_results)} results · {search_duration:.1f}s · {search_mode}")
@@ -252,52 +318,45 @@ def search(
     panel_width = min(console.width - 4, 80) if console.width else 76
 
     for card in search_results:
-        # Color-code match score
-        if card.match_score >= 0.8:
-            score_color = t.success
-        elif card.match_score >= 0.6:
-            score_color = t.warning
-        else:
-            score_color = t.error
-
-        # Build title bar — keep it short so panel doesn't stretch
-        # Leave ~45 chars for title + rank + score + badge inside an 80-char panel
+        # Build title bar: [rank] title · badge · project_name · time_ago
         max_title_bar_len = 45
         display_title = card.title
         if len(display_title) > max_title_bar_len:
             display_title = display_title[: max_title_bar_len - 3] + "..."
 
-        title_bar = (
-            f"[{t.accent}]{card.rank}[/{t.accent}]  "
-            f"[bold]{display_title}[/bold]  "
-            f"[{score_color}]{card.match_score:.0%} match[/{score_color}]"
-        )
         if card.quality_badge:
-            title_bar += f"  {card.quality_badge}"
+            badge = f"{card.quality_badge} {card.match_score:.0%}"
+        else:
+            if card.match_score >= 0.8:
+                score_color = t.success
+            elif card.match_score >= 0.6:
+                score_color = t.warning
+            else:
+                score_color = t.error
+            badge = f"[{score_color}]{card.match_score:.0%} match[/{score_color}]"
 
-        # Body content
-        body_lines: list[str] = []
-        meta_parts: list[str] = []
+        title_parts = [
+            f"[{t.accent}]{card.rank}[/{t.accent}]",
+            f"[bold]{display_title}[/bold]",
+            badge,
+        ]
         if card.project_name:
-            meta_parts.append(card.project_name)
+            title_parts.append(f"[{t.dim}]{card.project_name}[/{t.dim}]")
         if card.time_ago:
-            meta_parts.append(card.time_ago)
-        if meta_parts:
-            body_lines.append(f"[{t.dim}]{' · '.join(meta_parts)}[/{t.dim}]")
+            title_parts.append(f"[{t.dim}]{card.time_ago}[/{t.dim}]")
 
+        title_bar = "  ".join(title_parts)
+
+        # Body content: excerpt, tags, files_summary, fork_command
+        body_lines: list[str] = []
         if card.excerpt:
             body_lines.append(card.excerpt)
 
         if card.tags:
             body_lines.append(f"[{t.dim}]tags: {', '.join(card.tags)}[/{t.dim}]")
 
-        detail_parts: list[str] = []
         if card.files_summary:
-            detail_parts.append(card.files_summary)
-        if card.duration:
-            detail_parts.append(card.duration)
-        if detail_parts:
-            body_lines.append(f"[{t.dim}]{' · '.join(detail_parts)}[/{t.dim}]")
+            body_lines.append(f"[{t.dim}]{card.files_summary}[/{t.dim}]")
 
         body = "\n".join(body_lines)
 
