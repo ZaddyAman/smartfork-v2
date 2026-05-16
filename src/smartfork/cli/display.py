@@ -26,7 +26,6 @@ from smartfork.cli.theme import (
     SparklineState,
     format_elapsed,
     get_theme,
-    quality_minibar,
 )
 from smartfork.models.progress import ProgressEvent
 
@@ -224,17 +223,20 @@ class IndexDisplay:
             )
         elif self._phase == "scanning":
             lines.append(self._scan_progress)
-            # Find running agent or fall back to active path
-            active_agent = next(
-                (k for k, v in self._scan_agents_data.items() if v.get("status") == "running"), 
-                None
-            )
-            
-            if active_agent:
-                lines.append(
-                    Text.from_markup(f"    [{t.dim}]╰── {active_agent} · scanning...[/{t.dim}]")
-                )
-            elif self._scan_active_path:
+            # Show all scanned agents with their status
+            for agent_id, data in self._scan_agents_data.items():
+                count = data.get("count", 0)
+                status = data.get("status", "")
+                if status == "done":
+                    subtext = f"{agent_id}: {count} found"
+                elif status == "running":
+                    subtext = f"{agent_id}: scanning..."
+                else:
+                    subtext = f"{agent_id}: ..."
+                lines.append(Text.from_markup(f"    [{t.dim}]╰── {subtext}[/{t.dim}]"))
+
+            # If no agents reported yet, fall back to active path
+            if not self._scan_agents_data and self._scan_active_path:
                 path = self._scan_active_path
                 if len(path) > 40:
                     path = "..." + path[-37:]
@@ -262,7 +264,6 @@ class IndexDisplay:
 
         # ── 3. Index Step ──
         if self._index_done:
-            total_time = time.time() - self._start_time
             lines.append(
                 Text.from_markup(
                     f"  [{t.success}]✓[/{t.success}] Indexed [bold]{self._index_total}[/bold] "

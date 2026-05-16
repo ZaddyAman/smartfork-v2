@@ -29,6 +29,7 @@ def _make_session(**kwargs) -> SessionDocument:
         "task_raw": "Fix authentication bug",
         "summary_doc": "Fixed the auth bug by updating JWT validation.",
         "propositions": ["JWT token was expired", "Fixed validation logic"],
+        "reasoning_docs": ["Analyzed auth flow", "Identified JWT bug"],
         "quality_tag": QualityTag.SOLUTION_FOUND,
         "tech_tags": ["JWT", "FastAPI"],
         "indexed_at": 1700000100000,
@@ -147,3 +148,49 @@ class TestMetadataStore:
 
         ids = store.get_filtered_ids(domain="auth")
         assert "s1" in ids
+
+    def test_get_session_document(self, store: MetadataStore) -> None:
+        session = _make_session()
+        store.upsert_session(session)
+
+        doc = store.get_session_document("test-sess-1")
+        assert doc is not None
+        assert doc.session_id == "test-sess-1"
+        assert doc.agent == "kilocode"
+        assert doc.project_name == "myproject"
+        assert doc.files_edited == ["src/auth.py"]
+        assert doc.quality_tag == QualityTag.SOLUTION_FOUND
+
+    def test_get_session_document_missing(self, store: MetadataStore) -> None:
+        assert store.get_session_document("nonexistent") is None
+
+    def test_reasoning_docs_round_trip(self, store: MetadataStore) -> None:
+        session = _make_session(
+            session_id="sess-reasoning",
+            reasoning_docs=["Step 1: identify bug", "Step 2: fix bug"],
+        )
+        store.upsert_session(session)
+
+        raw = store.get_session("sess-reasoning")
+        assert raw is not None
+        assert raw["reasoning_docs"] == '["Step 1: identify bug", "Step 2: fix bug"]'
+
+        doc = store.get_session_document("sess-reasoning")
+        assert doc is not None
+        assert doc.reasoning_docs == ["Step 1: identify bug", "Step 2: fix bug"]
+
+    def test_get_all_session_documents(self, store: MetadataStore) -> None:
+        store.upsert_session(_make_session(session_id="s1", project_name="proj-a"))
+        store.upsert_session(_make_session(session_id="s2", project_name="proj-b"))
+
+        docs = store.get_all_session_documents()
+        assert len(docs) == 2
+        assert {d.session_id for d in docs} == {"s1", "s2"}
+
+    def test_get_all_session_documents_with_filter(self, store: MetadataStore) -> None:
+        store.upsert_session(_make_session(session_id="s1", agent="kilocode"))
+        store.upsert_session(_make_session(session_id="s2", agent="claudecode"))
+
+        docs = store.get_all_session_documents(agent="kilocode")
+        assert len(docs) == 1
+        assert docs[0].session_id == "s1"

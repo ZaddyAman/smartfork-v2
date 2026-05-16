@@ -103,7 +103,7 @@ def mock_config_dir(tmp_path: Path) -> Path:
     config_dir = tmp_path / ".smartfork"
     config_dir.mkdir()
     (config_dir / "config.toml").write_text(
-        '[core]\nschema_version = 2\ntheme = "obsidian"\nlog_level = "INFO"\n',
+        '[core]\nschema_version = 3\ntheme = "obsidian"\nlog_level = "INFO"\n',
         encoding="utf-8",
     )
     (config_dir / "secrets.env").write_text(

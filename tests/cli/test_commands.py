@@ -90,7 +90,7 @@ class TestForkCommand:
     @patch("smartfork.fork.assembler.ForkExporter")
     def test_fork_continue(self, mock_exporter, mock_assembler_cls, mock_store_cls, runner: CliRunner) -> None:
         mock_store = mock_store_cls.return_value
-        mock_store.get_session.return_value = {"session_id": "sess-123", "agent": "claudecode", "project_name": "test"}
+        mock_store.get_session_document.return_value = MagicMock()
         
         mock_assembler = mock_assembler_cls.return_value
         mock_assembler.assemble.return_value = "Handoff content"
@@ -102,7 +102,7 @@ class TestForkCommand:
     @patch("smartfork.indexer.metadata_store.MetadataStore")
     def test_fork_invalid_session(self, mock_store_cls, runner: CliRunner) -> None:
         mock_store = mock_store_cls.return_value
-        mock_store.get_session.return_value = None
+        mock_store.get_session_document.return_value = None
         
         result = runner.invoke(app, ["fork", "invalid-123"])
         assert result.exit_code == 1
@@ -177,10 +177,7 @@ class TestVaultCommand:
     @patch("smartfork.vault.obsidian.ObsidianVaultGenerator")
     def test_generate_vault(self, mock_gen_cls, mock_store_cls, runner: CliRunner) -> None:
         mock_store = mock_store_cls.return_value
-        mock_store.get_filtered_ids.return_value = ["sess-123"]
-        mock_store.get_session.return_value = {
-            "session_id": "sess-123", "agent": "claudecode", "project_name": "test"
-        }
+        mock_store.get_all_session_documents.return_value = [MagicMock()]
         
         mock_gen = mock_gen_cls.return_value
         mock_gen.generate.return_value = "/path/to/vault"

@@ -468,8 +468,9 @@ class DeterministicSearchEngine:
                 session = self.metadata_store.get_session(session_id)
                 if session:
                     title = session.get("task_raw", session_id) or session_id
-                    if len(title) > 80:
-                        title = title[:77] + "..."
+                    title = title.strip("'\"`")
+                    if len(title) > 50:
+                        title = title[:47] + "..."
                     project_name = session.get("project_name", "")
                     quality = session.get("quality_tag", "unknown")
                     quality_map = {
@@ -501,6 +502,40 @@ class DeterministicSearchEngine:
                     if len(excerpt) > 120:
                         excerpt = excerpt[:117] + "..."
 
+                    # Tags: combine tech_tags + domains + languages
+                    tech_tags = self.metadata_store._deserialize_list(
+                        session.get("tech_tags", "[]")
+                    )
+                    domains = self.metadata_store._deserialize_list(
+                        session.get("domains", "[]")
+                    )
+                    languages = self.metadata_store._deserialize_list(
+                        session.get("languages", "[]")
+                    )
+                    all_tags = tech_tags + domains + languages
+
+                    # Deduplicate case-insensitively, preserving original case of first occurrence
+                    seen: set[str] = set()
+                    unique_tags: list[str] = []
+                    for tag in all_tags:
+                        tag_lower = tag.lower()
+                        if tag_lower not in seen:
+                            seen.add(tag_lower)
+                            unique_tags.append(tag)
+
+                    # Prioritize tags matching query entities, then limit to 5
+                    query_entities = {e.lower() for e in decomposition.entities}
+                    def _tag_priority(
+                        tag: str, _entities: set[str] = query_entities
+                    ) -> tuple[int, str]:
+                        return (0 if tag.lower() in _entities else 1, tag.lower())
+
+                    tags = sorted(unique_tags, key=_tag_priority)[:5]
+                else:
+                    tags = []
+            else:
+                tags = []
+
             cards.append(
                 ResultCard(
                     rank=rank,
@@ -515,6 +550,7 @@ class DeterministicSearchEngine:
                     duration=duration,
                     files_summary=files_summary,
                     excerpt=excerpt,
+                    tags=tags,
                     fork_command=f"smartfork fork {session_id}",
                 )
             )

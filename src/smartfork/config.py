@@ -68,7 +68,7 @@ class SmartForkConfig(BaseSettings):
     adaptive_fps: bool = True
 
     # Schema
-    schema_version: int = 2
+    schema_version: int = 3
 
     # ------------------------------------------------------------------ #
     # Validators

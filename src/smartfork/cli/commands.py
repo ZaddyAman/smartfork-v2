@@ -78,7 +78,9 @@ def index(
         from smartfork.providers import get_embedder
 
         emb = get_embedder(cfg.embedding_provider, cfg.embedding_model, cfg.embedding_dimensions)
-        embedder = EmbeddingPipeline(embedder=emb, persist_dir=cfg.qdrant_db_path, batch_size=cfg.batch_size)
+        embedder = EmbeddingPipeline(
+            embedder=emb, persist_dir=cfg.qdrant_db_path, batch_size=cfg.batch_size
+        )
     except Exception as e:
         error(f"Embedder not available: {e}")
         info("Search requires embeddings to function. Please fix the issue above and try again.")
@@ -116,8 +118,62 @@ def index(
 
     nl()
     t = get_theme()
-    rows = [(k, str(v)) for k, v in stats.items() if k != "elapsed_seconds"]
-    console.print(kv_table("Indexing Summary", rows))
+
+    from rich import box as rbox
+    from rich.table import Table
+
+    summary_table = Table(
+        title="Indexing Summary",
+        box=rbox.ROUNDED,
+        border_style=t.dim,
+        title_style=f"bold {t.accent}",
+        show_header=False,
+        padding=(0, 1),
+    )
+    summary_table.add_column("Metric", style=t.accent, min_width=20)
+    summary_table.add_column("Value", min_width=20)
+
+    # Quality breakdown from store
+    try:
+        quality_stats = store.get_stats().get("by_quality", {})
+    except Exception:
+        quality_stats = {}
+    high = quality_stats.get("solution_found", 0)
+    medium = quality_stats.get("partial", 0) + quality_stats.get("reference", 0)
+    low = quality_stats.get("dead_end", 0) + quality_stats.get("unknown", 0)
+
+    parsed = stats.get("parsed", 0)
+    chunked = stats.get("chunked", 0)
+    stored = stats.get("stored", 0)
+    enriched = stats.get("enriched", 0)
+    errors = stats.get("errors", 0)
+    elapsed = stats.get("elapsed_seconds", 0.0)
+
+    throughput_ses = parsed / elapsed if elapsed > 0 else 0.0
+    throughput_chunks = chunked / elapsed if elapsed > 0 else 0.0
+
+    if elapsed < 60:
+        elapsed_str = f"{elapsed:.1f}s"
+    else:
+        minutes = int(elapsed // 60)
+        secs = elapsed % 60
+        elapsed_str = f"{minutes}m {secs:.1f}s"
+
+    summary_rows = [
+        ("Sessions parsed", str(parsed)),
+        ("Chunks created", str(chunked)),
+        ("Embeddings stored", str(stored)),
+        ("LLM enriched", str(enriched)),
+        ("Errors", str(errors)),
+        ("Throughput", f"{throughput_ses:.1f} ses/s · {throughput_chunks:.1f} chunks/s"),
+        ("Quality breakdown", quality_minibar(high, medium, low)),
+        ("Total time", elapsed_str),
+    ]
+
+    for label, value in summary_rows:
+        summary_table.add_row(label, value)
+
+    console.print(summary_table)
 
     chunked = stats.get("chunked", 0)
     stored = stats.get("stored", 0)
@@ -158,8 +214,11 @@ def search(
     except Exception:
         pass
 
+    import time
     engine = DeterministicSearchEngine(embedder=embedder, metadata_store=store)
+    search_start = time.time()
     search_results = engine.search(query, top_k=results)
+    search_duration = time.time() - search_start
 
     header("Search")
     info(f"Query: {query}")
@@ -180,29 +239,87 @@ def search(
         info("No results found. Try a different query or check your index.")
         return
 
-    info(f"{len(search_results)} results · {search_mode}")
+    info(f"{len(search_results)} results · {search_duration:.1f}s · {search_mode}")
     nl()
 
-    # Card-style results table
-    from rich.table import Table
     from rich import box as rbox
+    from rich.align import Align
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.text import Text
 
-    table = Table(box=rbox.ROUNDED, border_style=t.dim, show_header=False, padding=(0, 1))
-    table.add_column("Content", min_width=60)
+    # Constrain card width so titles don't blow out the terminal
+    panel_width = min(console.width - 4, 80) if console.width else 76
 
     for card in search_results:
-        excerpt = card.excerpt[:100] + "..." if len(card.excerpt) > 100 else card.excerpt
-        line1 = f"[bold white]{card.rank}[/bold white]  [bold]{card.title}[/bold]" + (
-            f"  [{t.accent}]{card.match_score:.0%} match[/{t.accent}]"
-        )
-        line2 = f"[{t.dim}]{card.project_name} · {card.time_ago}[/{t.dim}]"
-        line3 = f"[{t.dim}]{excerpt}[/{t.dim}]" if excerpt else ""
-        cell = f"{line1}\n{line2}"
-        if line3:
-            cell += f"\n{line3}"
-        table.add_row(cell)
+        # Color-code match score
+        if card.match_score >= 0.8:
+            score_color = t.success
+        elif card.match_score >= 0.6:
+            score_color = t.warning
+        else:
+            score_color = t.error
 
-    console.print(table)
+        # Build title bar — keep it short so panel doesn't stretch
+        # Leave ~45 chars for title + rank + score + badge inside an 80-char panel
+        max_title_bar_len = 45
+        display_title = card.title
+        if len(display_title) > max_title_bar_len:
+            display_title = display_title[: max_title_bar_len - 3] + "..."
+
+        title_bar = (
+            f"[{t.accent}]{card.rank}[/{t.accent}]  "
+            f"[bold]{display_title}[/bold]  "
+            f"[{score_color}]{card.match_score:.0%} match[/{score_color}]"
+        )
+        if card.quality_badge:
+            title_bar += f"  {card.quality_badge}"
+
+        # Body content
+        body_lines: list[str] = []
+        meta_parts: list[str] = []
+        if card.project_name:
+            meta_parts.append(card.project_name)
+        if card.time_ago:
+            meta_parts.append(card.time_ago)
+        if meta_parts:
+            body_lines.append(f"[{t.dim}]{' · '.join(meta_parts)}[/{t.dim}]")
+
+        if card.excerpt:
+            body_lines.append(card.excerpt)
+
+        if card.tags:
+            body_lines.append(f"[{t.dim}]tags: {', '.join(card.tags)}[/{t.dim}]")
+
+        detail_parts: list[str] = []
+        if card.files_summary:
+            detail_parts.append(card.files_summary)
+        if card.duration:
+            detail_parts.append(card.duration)
+        if detail_parts:
+            body_lines.append(f"[{t.dim}]{' · '.join(detail_parts)}[/{t.dim}]")
+
+        body = "\n".join(body_lines)
+
+        # Right-aligned footer inside the panel
+        footer_text = Text.from_markup(f"[{t.dim}]fork: {card.fork_command}[/{t.dim}]")
+        card_content = Group(
+            Text.from_markup(body),
+            Align.right(footer_text),
+        )
+
+        panel = Panel(
+            card_content,
+            title=title_bar,
+            title_align="left",
+            border_style=t.accent,
+            box=rbox.ROUNDED,
+            padding=(0, 1),
+            width=panel_width,
+        )
+        console.print(panel)
+        console.print()  # blank line between cards
+
     nl()
     info("Run [bold]smartfork fork <session_id>[/bold] to create context.")
 
@@ -220,7 +337,6 @@ def fork(
     from smartfork.fork.assembler import ForkAssembler, ForkExporter
     from smartfork.indexer.metadata_store import MetadataStore
     from smartfork.models.fork import ForkIntent
-    from smartfork.models.session import QualityTag, SessionDocument
 
     valid_intents = {"continue", "reference", "debug", "synthesize"}
     if intent not in valid_intents:
@@ -230,43 +346,13 @@ def fork(
 
     cfg = get_config()
     store = MetadataStore(cfg.sqlite_db_path)
-    session_data = store.get_session(session_id)
+    doc = store.get_session_document(session_id)
 
-    if session_data is None:
+    if doc is None:
         header("Fork")
         error(f"Session '{session_id}' not found in the index.")
         info("Run [bold]smartfork index --full[/bold] to index sessions first.")
         raise typer.Exit(1)
-
-    # Reconstruct SessionDocument from stored data
-    doc = SessionDocument(
-        session_id=session_data["session_id"],
-        agent=session_data["agent"],
-        project_name=session_data["project_name"],
-        project_root=session_data.get("project_root", ""),
-        session_start=session_data.get("session_start", 0),
-        session_end=session_data.get("session_end", 0),
-        duration_minutes=session_data.get("duration_minutes", 0.0),
-        model_used=session_data.get("model_used"),
-        files_edited=store._deserialize_list(session_data.get("files_edited", "[]")),
-        files_read=store._deserialize_list(session_data.get("files_read", "[]")),
-        files_mentioned=store._deserialize_list(session_data.get("files_mentioned", "[]")),
-        edit_count=session_data.get("edit_count", 0),
-        user_edit_count=session_data.get("user_edit_count", 0),
-        final_files=store._deserialize_list(session_data.get("final_files", "[]")),
-        domains=store._deserialize_list(session_data.get("domains", "[]")),
-        languages=store._deserialize_list(session_data.get("languages", "[]")),
-        layers=store._deserialize_list(session_data.get("layers", "[]")),
-        session_pattern=session_data.get("session_pattern", "standard_implementation"),
-        task_raw=session_data.get("task_raw", ""),
-        reasoning_docs=[],
-        summary_doc=session_data.get("summary_doc", ""),
-        propositions=store._deserialize_list(session_data.get("propositions", "[]")),
-        quality_tag=QualityTag(session_data.get("quality_tag", "unknown")),
-        tech_tags=store._deserialize_list(session_data.get("tech_tags", "[]")),
-        indexed_at=session_data.get("indexed_at", 0),
-        schema_version=session_data.get("schema_version", 2),
-    )
 
     fork_intent = ForkIntent(intent)
     assembler = ForkAssembler()
@@ -380,56 +466,113 @@ def status() -> None:
     except Exception:
         pass
 
-    # Build visual dashboard
-    from rich.table import Table
     from rich import box as rbox
+    from rich.console import Group
+    from rich.panel import Panel
+    from rich.rule import Rule
+    from rich.table import Table
+    from rich.text import Text
 
-    table = Table(box=rbox.ROUNDED, border_style=t.dim, show_header=False, padding=(0, 1), min_width=56)
-    table.add_column("Content", min_width=54)
+    lines: list[Any] = []
 
-    # Row 1: Overview
-    overview = (
-        f"[bold]Sessions[/bold]  [{t.accent}]{total}[/{t.accent}]    "
-        f"[bold]Chunks[/bold]  [{t.accent}]{chunks_count}[/{t.accent}]    "
-        f"[bold]Agents[/bold]  [{t.accent}]{len(by_agent)}[/{t.accent}]"
+    # Section 1: Overview
+    overview_table = Table(box=None, show_header=False, padding=(0, 0))
+    overview_table.add_column(style="bold", min_width=10)
+    overview_table.add_column(style=t.accent, min_width=8)
+    overview_table.add_column(style="bold", min_width=10)
+    overview_table.add_column(style=t.accent, min_width=8)
+    overview_table.add_column(style="bold", min_width=10)
+    overview_table.add_column(style=t.accent, min_width=8)
+    overview_table.add_row(
+        "Sessions", str(total), "Chunks", str(chunks_count), "Agents", str(len(by_agent))
     )
-    table.add_row(overview)
+    lines.append(overview_table)
 
-    # Row 2: By agent with bars
+    # Section 1b: Agent bars
     if by_agent:
         agent_lines = []
         max_agent = max(by_agent.values()) if by_agent else 1
         for name, count in sorted(by_agent.items(), key=lambda x: -x[1]):
             bar = inline_bar(count, max_agent, width=12)
             pct = round(count / total * 100) if total else 0
-            agent_lines.append(f"[{t.accent}]{bar}[/{t.accent}] {name} {count} ({pct}%)")
-        table.add_row("\n".join(agent_lines))
+            agent_lines.append(
+                f"[{t.accent}]{bar}[/{t.accent}] {name} {count} ({pct}%)"
+            )
+        lines.append(Text.from_markup("\n".join(agent_lines)))
 
-    # Row 3: By project with bars
+    # Separator
+    if by_agent or by_project:
+        lines.append(Rule(style=t.dim))
+
+    # Section 2: Projects
     if by_project:
-        proj_lines = []
+        lines.append(Text("Projects", style=f"bold {t.accent}"))
+        projects_table = Table(box=None, show_header=False, padding=(0, 0))
+        projects_table.add_column(min_width=14)
+        projects_table.add_column(style=t.accent, min_width=16)
+        projects_table.add_column(min_width=6)
         top = sorted(by_project.items(), key=lambda x: -x[1])[:5]
         max_proj = top[0][1] if top else 1
         for name, count in top:
             bar = inline_bar(count, max_proj, width=12)
-            proj_lines.append(f"[{t.accent}]{bar}[/{t.accent}] {name} {count}")
-        table.add_row("\n".join(proj_lines))
+            projects_table.add_row(name, bar, str(count))
+        lines.append(projects_table)
+        lines.append(Text(""))
 
-    # Row 4: Quality
+    # Separator
+    if by_project and by_quality:
+        lines.append(Rule(style=t.dim))
+
+    # Section 3: Quality
     if by_quality:
+        lines.append(Text("Quality", style=f"bold {t.accent}"))
         high = by_quality.get("solution_found", 0) + by_quality.get("high", 0)
         med = by_quality.get("partial", 0) + by_quality.get("medium", 0)
-        low = by_quality.get("dead_end", 0) + by_quality.get("low", 0) + by_quality.get("unknown", 0)
-        qbar = quality_minibar(high, med, low)
-        table.add_row(f"[bold]Quality[/bold]  [{t.accent}]{qbar}[/{t.accent}]")
+        low = (
+            by_quality.get("dead_end", 0)
+            + by_quality.get("low", 0)
+            + by_quality.get("unknown", 0)
+        )
+        total_qual = high + med + low
 
-    # Row 5: Embeddings
+        quality_table = Table(box=None, show_header=False, padding=(0, 0))
+        quality_table.add_column(min_width=8)
+        quality_table.add_column(style=t.success, min_width=16)
+        quality_table.add_column(min_width=6)
+
+        if total_qual > 0:
+            max_qual = max(high, med, low) if any((high, med, low)) else 1
+            if high:
+                quality_table.add_row("high", inline_bar(high, max_qual, width=12), str(high))
+            if med:
+                quality_table.add_row("medium", inline_bar(med, max_qual, width=12), str(med))
+            if low:
+                quality_table.add_row("low", inline_bar(low, max_qual, width=12), str(low))
+        else:
+            quality_table.add_row("—", "", "")
+        lines.append(quality_table)
+        lines.append(Text(""))
+
+    # Separator (always show before embeddings)
+    lines.append(Rule(style=t.dim))
+
+    # Section 4: Embeddings
+    lines.append(Text("Embeddings", style=f"bold {t.accent}"))
     if chunks_count > 0:
-        table.add_row(f"[bold]Embeddings[/bold]  {chunks_count} chunks · {emb_model}")
+        lines.append(Text(f"{chunks_count} chunks stored · {emb_model}"))
     else:
-        table.add_row(f"[bold]Embeddings[/bold]  [{t.warning}]N/A (embedder not available)[/{t.warning}]")
+        lines.append(Text("N/A (embedder not available)", style=t.warning))
 
-    console.print(table)
+    content = Group(*lines)
+    panel = Panel(
+        content,
+        title=f"[bold]SmartFork[/bold] · [{t.accent}]Status[/{t.accent}]",
+        title_align="left",
+        border_style=t.dim,
+        box=rbox.ROUNDED,
+        padding=(1, 2),
+    )
+    console.print(panel)
 
     if total == 0:
         nl()
@@ -521,7 +664,11 @@ def theme(
     if action == "list":
         header("Themes")
         for palette_name, palette in PALETTES.items():
-            active = f" [{palette.success}](active)[/{palette.success}]" if palette_name == cfg.theme else ""
+            active = (
+                f" [{palette.success}](active)[/{palette.success}]"
+                if palette_name == cfg.theme
+                else ""
+            )
             console.print(
                 f"   [{palette.accent}]{palette_name:<12}[/{palette.accent}] "
                 f"[dim]{palette.description}[/dim]{active}"
@@ -543,50 +690,32 @@ def theme(
 
 @app.command(rich_help_panel="Integrations")
 def vault(
-    output_dir: str = typer.Option("./smartfork_vault", "--output", "-o", help="Output directory"),
-    project_folders: bool = typer.Option(False, "--project-folders", help="Group by project folders"),
+    output_dir: str = typer.Option(
+        "./smartfork_vault", "--output", "-o", help="Output directory"
+    ),
+    project_folders: bool = typer.Option(
+        False, "--project-folders", help="Group by project folders"
+    ),
 ) -> None:
     """Generate an Obsidian vault from indexed sessions."""
     from pathlib import Path
 
     from smartfork.config import get_config
     from smartfork.indexer.metadata_store import MetadataStore
-    from smartfork.models.session import QualityTag, SessionDocument
     from smartfork.vault.obsidian import ObsidianVaultGenerator
 
     cfg = get_config()
     store = MetadataStore(cfg.sqlite_db_path)
-
-    all_ids = store.get_filtered_ids(limit=10_000)
-    sessions: list[SessionDocument] = []
-    for sid in all_ids:
-        data = store.get_session(sid)
-        if data:
-            sessions.append(
-                SessionDocument(
-                    session_id=data["session_id"],
-                    agent=data["agent"],
-                    project_name=data["project_name"],
-                    project_root=data.get("project_root", ""),
-                    session_start=data.get("session_start", 0),
-                    session_end=data.get("session_end", 0),
-                    duration_minutes=data.get("duration_minutes", 0.0),
-                    model_used=data.get("model_used"),
-                    files_edited=store._deserialize_list(data.get("files_edited", "[]")),
-                    files_read=store._deserialize_list(data.get("files_read", "[]")),
-                    task_raw=data.get("task_raw", ""),
-                    summary_doc=data.get("summary_doc", ""),
-                    quality_tag=QualityTag(data.get("quality_tag", "unknown")),
-                    domains=store._deserialize_list(data.get("domains", "[]")),
-                    languages=store._deserialize_list(data.get("languages", "[]")),
-                    tech_tags=store._deserialize_list(data.get("tech_tags", "[]")),
-                )
-            )
+    sessions = store.get_all_session_documents(limit=10_000)
 
     header("Vault")
     info("Generating vault...")
     generator = ObsidianVaultGenerator()
-    result_path = generator.generate(sessions=sessions, vault_dir=Path(output_dir), project_folders=project_folders)
+    result_path = generator.generate(
+        sessions=sessions,
+        vault_dir=Path(output_dir),
+        project_folders=project_folders,
+    )
     success(f"Vault created at: {result_path}")
 
 

@@ -5,7 +5,9 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from smartfork.models.session import SessionDocument
+from loguru import logger
+
+from smartfork.models.session import QualityTag, SessionDocument
 
 # SQL Schema
 SCHEMA_SQL = """
@@ -33,8 +35,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     propositions TEXT NOT NULL DEFAULT '[]',
     quality_tag TEXT NOT NULL DEFAULT 'unknown',
     tech_tags TEXT NOT NULL DEFAULT '[]',
+    reasoning_docs TEXT NOT NULL DEFAULT '[]',
     indexed_at INTEGER NOT NULL DEFAULT 0,
-    schema_version INTEGER NOT NULL DEFAULT 2
+    schema_version INTEGER NOT NULL DEFAULT 3
 );
 
 CREATE TABLE IF NOT EXISTS supersession_links (
@@ -69,6 +72,7 @@ class MetadataStore:
         self.db_path = Path(db_path).expanduser()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
+        self._ensure_schema()
 
     def _init_db(self) -> None:
         """Initialize the database schema."""
@@ -76,6 +80,21 @@ class MetadataStore:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.executescript(SCHEMA_SQL)
             conn.commit()
+
+    def _ensure_schema(self) -> None:
+        """Migrate existing databases to the current schema."""
+        with self._get_conn() as conn:
+            cursor = conn.execute("PRAGMA table_info(sessions)")
+            columns = {row["name"] for row in cursor.fetchall()}
+            if "reasoning_docs" not in columns:
+                conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN reasoning_docs TEXT NOT NULL DEFAULT '[]'"
+                )
+                conn.commit()
+                logger.warning(
+                    "Database migrated to schema v3 (added: reasoning_docs). "
+                    "Run smartfork index --rebuild to populate historical data."
+                )
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get a SQLite connection."""
@@ -115,11 +134,11 @@ class MetadataStore:
                     edit_count, user_edit_count, final_files,
                     domains, languages, layers, session_pattern,
                     task_raw, summary_doc, propositions,
-                    quality_tag, tech_tags, indexed_at, schema_version
+                    quality_tag, tech_tags, reasoning_docs, indexed_at, schema_version
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?
+                    ?, ?, ?, ?
                 )""",
                 (
                     session.session_id,
@@ -149,6 +168,7 @@ class MetadataStore:
                         else str(session.quality_tag)
                     ),
                     self._serialize_list(session.tech_tags),
+                    self._serialize_list(session.reasoning_docs),
                     session.indexed_at,
                     session.schema_version,
                 ),
@@ -346,3 +366,77 @@ class MetadataStore:
         with self._get_conn() as conn:
             rows = conn.execute(query, tuple(params)).fetchall()
             return [r["session_id"] for r in rows]
+
+    # --- Deserialization helpers ---
+
+    def get_session_document(self, session_id: str) -> SessionDocument | None:
+        """Retrieve a session by ID as a fully deserialized SessionDocument.
+
+        Args:
+            session_id: The session identifier.
+
+        Returns:
+            SessionDocument, or None if not found.
+        """
+        data = self.get_session(session_id)
+        if data is None:
+            return None
+
+        return SessionDocument(
+            session_id=data["session_id"],
+            agent=data["agent"],
+            project_name=data["project_name"],
+            project_root=data.get("project_root", ""),
+            session_start=data.get("session_start", 0),
+            session_end=data.get("session_end", 0),
+            duration_minutes=data.get("duration_minutes", 0.0),
+            model_used=data.get("model_used"),
+            files_edited=self._deserialize_list(data.get("files_edited", "[]")),
+            files_read=self._deserialize_list(data.get("files_read", "[]")),
+            files_mentioned=self._deserialize_list(data.get("files_mentioned", "[]")),
+            edit_count=data.get("edit_count", 0),
+            user_edit_count=data.get("user_edit_count", 0),
+            final_files=self._deserialize_list(data.get("final_files", "[]")),
+            domains=self._deserialize_list(data.get("domains", "[]")),
+            languages=self._deserialize_list(data.get("languages", "[]")),
+            layers=self._deserialize_list(data.get("layers", "[]")),
+            session_pattern=data.get("session_pattern", "standard_implementation"),
+            task_raw=data.get("task_raw", ""),
+            reasoning_docs=self._deserialize_list(data.get("reasoning_docs", "[]")),
+            summary_doc=data.get("summary_doc", ""),
+            propositions=self._deserialize_list(data.get("propositions", "[]")),
+            quality_tag=QualityTag(data.get("quality_tag", "unknown")),
+            tech_tags=self._deserialize_list(data.get("tech_tags", "[]")),
+            indexed_at=data.get("indexed_at", 0),
+            schema_version=data.get("schema_version", 3),
+        )
+
+    def get_all_session_documents(
+        self,
+        project: str | None = None,
+        domain: str | None = None,
+        quality: str | None = None,
+        agent: str | None = None,
+        limit: int = 10_000,
+    ) -> list[SessionDocument]:
+        """Retrieve multiple sessions as fully deserialized SessionDocuments.
+
+        Args:
+            project: Filter by project name.
+            domain: Filter by domain.
+            quality: Filter by quality tag.
+            agent: Filter by agent ID.
+            limit: Maximum number of results.
+
+        Returns:
+            List of SessionDocument objects.
+        """
+        session_ids = self.get_filtered_ids(
+            project=project, domain=domain, quality=quality, agent=agent, limit=limit
+        )
+        documents: list[SessionDocument] = []
+        for sid in session_ids:
+            doc = self.get_session_document(sid)
+            if doc:
+                documents.append(doc)
+        return documents

@@ -67,4 +67,5 @@ class ResultCard:
     duration: str = ""
     files_summary: str = ""
     excerpt: str = ""
+    tags: list[str] = field(default_factory=list)
     fork_command: str = ""
