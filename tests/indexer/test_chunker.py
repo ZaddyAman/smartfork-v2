@@ -1,7 +1,6 @@
 """Tests for the chunking system."""
 
 from smartfork.indexer.chunker import (
-    Chunk,
     ChunkingConfig,
     ContextualChunker,
     MessageBoundaryChunker,
@@ -83,7 +82,8 @@ class TestMessageBoundaryChunker:
             reasoning_docs=[
                 "The JWT token was expired. We need to refresh it before the next request. "
                 "This involves updating the auth middleware to handle the new refresh flow. "
-                "Additionally, we should cache the new token to avoid repeated authentication overhead."
+                "Additionally, we should cache the new token to avoid "
+                "repeated authentication overhead."
             ]
         )
         chunker = MessageBoundaryChunker()

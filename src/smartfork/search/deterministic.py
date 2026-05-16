@@ -3,6 +3,9 @@
 import time
 from typing import Any
 
+from loguru import logger
+
+from smartfork.indexer.metadata_store import MetadataStore
 from smartfork.models.search import QueryDecomposition, ResultCard, SearchIntent
 
 # Intent detection patterns
@@ -214,13 +217,11 @@ class DeterministicSearchEngine:
         vector_results: dict[str, float] = {}
         if self.embedder:
             try:
-                query_vec = self.embedder.embed_query(query)
-                # Mock: in production this queries ChromaDB
-                vector_results = self._vector_search(query_vec, top_k * 2)
-            except Exception:
-                pass
+                vector_results = self._vector_search(query, top_k * 2)
+            except Exception as e:
+                logger.warning(f"Vector search failed: {e}")
 
-        # BM25 search (mock — in production uses rank-bm25)
+        # BM25 search
         bm25_results: dict[str, float] = self._bm25_search(query, top_k * 2)
 
         # RRF fusion
@@ -238,15 +239,119 @@ class DeterministicSearchEngine:
 
         return cards
 
-    def _vector_search(self, query_vec: list[float], top_k: int) -> dict[str, float]:
-        """Perform vector similarity search. Mock implementation."""
-        # In production: self.collection.query(query_embeddings=[query_vec], n_results=top_k)
-        return {}
+    def _vector_search(self, query: str, top_k: int) -> dict[str, float]:
+        """Perform vector similarity search via ChromaDB.
+
+        Embeds the query, queries the ChromaDB collection, and maps
+        chunk results back to session IDs (taking max score per session).
+        """
+        if not self.embedder:
+            return {}
+
+        try:
+            query_vec = self.embedder.embed_query(query)
+            collection = self.embedder.collection
+            results = collection.query(
+                query_embeddings=[query_vec],
+                n_results=min(top_k * 3, 100),  # fetch extra since we aggregate
+                include=["metadatas", "distances"],
+            )
+        except Exception as e:
+            logger.debug(f"ChromaDB query failed: {e}")
+            return {}
+
+        session_scores: dict[str, float] = {}
+        if results and results.get("metadatas") and results.get("distances"):
+            metadatas_list = results["metadatas"][0]
+            distances_list = results["distances"][0]
+            for meta, distance in zip(metadatas_list, distances_list, strict=False):
+                session_id = meta.get("session_id", "")
+                if not session_id:
+                    continue
+                # ChromaDB cosine distance: 0 = identical, 2 = opposite
+                # Convert to similarity: 1 - (distance / 2)
+                similarity = max(0.0, 1.0 - (distance / 2.0))
+                if session_id not in session_scores or similarity > session_scores[session_id]:
+                    session_scores[session_id] = similarity
+
+        return session_scores
 
     def _bm25_search(self, query: str, top_k: int) -> dict[str, float]:
-        """Perform BM25 keyword search. Mock implementation."""
-        # In production: use rank_bm25.BM25Okapi
-        return {}
+        """Perform BM25 keyword search over session metadata.
+
+        Builds a corpus from task_raw + summary_doc of all sessions in the
+        metadata store and ranks using BM25Okapi.
+        """
+        if not self.metadata_store:
+            return {}
+
+        # Fetch all sessions from metadata store
+        try:
+            store: MetadataStore = self.metadata_store
+            all_ids = store.get_filtered_ids(limit=10_000)
+        except Exception as e:
+            logger.debug(f"Failed to fetch session IDs for BM25: {e}")
+            return {}
+
+        if not all_ids:
+            return {}
+
+        # Build corpus
+        corpus_docs: list[list[str]] = []
+        session_ids: list[str] = []
+        for sid in all_ids:
+            try:
+                session_data = store.get_session(sid)
+                if session_data is None:
+                    continue
+                # Combine searchable fields
+                text = " ".join([
+                    session_data.get("task_raw", ""),
+                    session_data.get("summary_doc", ""),
+                    session_data.get("project_name", ""),
+                    " ".join(store._deserialize_list(session_data.get("domains", "[]"))),
+                    " ".join(store._deserialize_list(session_data.get("languages", "[]"))),
+                    " ".join(store._deserialize_list(session_data.get("tech_tags", "[]"))),
+                ]).lower().split()
+                if text:
+                    corpus_docs.append(text)
+                    session_ids.append(sid)
+            except Exception:
+                continue
+
+        if not corpus_docs:
+            return {}
+
+        # Run BM25
+        try:
+            from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
+            bm25 = BM25Okapi(corpus_docs)
+            tokenized_query = query.lower().split()
+            scores = bm25.get_scores(tokenized_query)
+
+            session_scores: dict[str, float] = {}
+            for sid, score in zip(session_ids, scores, strict=False):
+                if score > 0:
+                    session_scores[sid] = float(score)
+
+            # Normalize to 0-1 range
+            if session_scores:
+                max_score = max(session_scores.values())
+                if max_score > 0:
+                    session_scores = {
+                        sid: s / max_score for sid, s in session_scores.items()
+                    }
+
+            # Return top-k
+            sorted_results = sorted(session_scores.items(), key=lambda x: -x[1])
+            return dict(sorted_results[:top_k])
+
+        except ImportError:
+            logger.debug("rank-bm25 not installed, skipping BM25 search")
+            return {}
+        except Exception as e:
+            logger.debug(f"BM25 search failed: {e}")
+            return {}
 
     def _rrf_fuse(
         self,
@@ -312,9 +417,29 @@ class DeterministicSearchEngine:
             # Base score carries 50% weight
             final_score = base_score * 0.5
 
-            # Bonus for recency (if temporal intent)
-            if decomposition.prefer_recent:
-                final_score += 0.05
+            if self.metadata_store:
+                session = self.metadata_store.get_session(session_id)
+                if session:
+                    # Quality bonus (10%)
+                    quality = session.get("quality_tag", "unknown")
+                    if quality == "solution_found":
+                        final_score += 0.10
+                    elif quality == "partial":
+                        final_score += 0.05
+
+                    # Recency bonus (5%)
+                    if decomposition.prefer_recent:
+                        ts = session.get("session_start", 0)
+                        if ts > 0:
+                            age_days = (time.time() * 1000 - ts) / (86400 * 1000)
+                            if age_days < 7:
+                                final_score += 0.05
+                            elif age_days < 30:
+                                final_score += 0.03
+            else:
+                # Bonus for recency (if temporal intent)
+                if decomposition.prefer_recent:
+                    final_score += 0.05
 
             # Bonus for code preference
             if decomposition.prefer_code:
@@ -330,20 +455,66 @@ class DeterministicSearchEngine:
         """Format ranked results into display-ready ResultCards."""
         cards: list[ResultCard] = []
         for rank, (session_id, score) in enumerate(ranked, start=1):
+            # Pull metadata if available
+            title = session_id
+            project_name = ""
+            quality_badge = ""
+            time_ago = ""
+            duration = ""
+            files_summary = ""
+            excerpt = ""
+
+            if self.metadata_store:
+                session = self.metadata_store.get_session(session_id)
+                if session:
+                    title = session.get("task_raw", session_id) or session_id
+                    if len(title) > 80:
+                        title = title[:77] + "..."
+                    project_name = session.get("project_name", "")
+                    quality = session.get("quality_tag", "unknown")
+                    quality_map = {
+                        "solution_found": "✓ Solved",
+                        "partial": "⚠ Partial",
+                        "dead_end": "✗ Dead End",
+                        "reference": "📖 Reference",
+                        "unknown": "? Unknown",
+                    }
+                    quality_badge = quality_map.get(quality, quality)
+
+                    ts = session.get("session_start", 0)
+                    if ts:
+                        time_ago = _humanize_timestamp(ts)
+                    dur = session.get("duration_minutes", 0.0)
+                    if dur:
+                        duration = _humanize_duration(dur)
+
+                    # Files summary
+                    files_edited = self.metadata_store._deserialize_list(
+                        session.get("files_edited", "[]")
+                    )
+                    if files_edited:
+                        count = len(files_edited)
+                        files_summary = f"{count} file{'s' if count != 1 else ''} edited"
+
+                    # Excerpt from summary or task
+                    excerpt = session.get("summary_doc", "") or session.get("task_raw", "")
+                    if len(excerpt) > 120:
+                        excerpt = excerpt[:117] + "..."
+
             cards.append(
                 ResultCard(
                     rank=rank,
                     session_id=session_id,
-                    title=session_id,  # In production: from metadata
-                    project_name="",
+                    title=title,
+                    project_name=project_name,
                     match_score=score,
                     relevance_explanation="",
-                    quality_badge="",
+                    quality_badge=quality_badge,
                     supersession_note="",
-                    time_ago="",
-                    duration="",
-                    files_summary="",
-                    excerpt="",
+                    time_ago=time_ago,
+                    duration=duration,
+                    files_summary=files_summary,
+                    excerpt=excerpt,
                     fork_command=f"smartfork fork {session_id}",
                 )
             )

@@ -173,6 +173,13 @@ class ClaudeCodeAdapter(SessionAdapter):
             if not turns:
                 return None
 
+            # Extract task from first user message
+            task_raw = ""
+            for turn in turns:
+                if turn.role in ("user", "human"):
+                    task_raw = turn.content[:500].strip()
+                    break
+
             return RawSessionData(
                 session_id=session_id,
                 agent_id=self.agent_id,
@@ -184,7 +191,7 @@ class ClaudeCodeAdapter(SessionAdapter):
                 files_user_edited=[],
                 final_files=[],
                 workspace_dir=workspace_dir,
-                task_raw="",
+                task_raw=task_raw,
                 model_used=model_used,
                 session_start=session_start,
                 session_end=session_end,

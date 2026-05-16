@@ -42,6 +42,12 @@ CLEANUP_PATTERNS = [
     re.compile(r"<thinking>.*?</thinking>", re.DOTALL),
 ]
 
+TASK_PATTERN = re.compile(r"<task>\s*(.*?)\s*</task>", re.DOTALL | re.IGNORECASE)
+WORKSPACE_PATTERN = re.compile(
+    r"Current Workspace Directory\s*\((.*?)\)\s*Files",
+    re.IGNORECASE,
+)
+
 # IDE name -> platform-specific paths
 IDE_PATHS: dict[str, dict[str, str]] = {
     "Cursor": {
@@ -115,6 +121,76 @@ def _extract_tool_name(text: str) -> str | None:
         if tag in text:
             return tag.strip("<>")
     return None
+
+
+def _extract_tagged_task(text: str) -> str:
+    """Extract the user task from Kilo/Roo-style tagged content."""
+    match = TASK_PATTERN.search(text)
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _extract_workspace_dir(text: str) -> str:
+    """Extract workspace path from environment details when present."""
+    match = WORKSPACE_PATTERN.search(text)
+    if not match:
+        return ""
+    return match.group(1).strip()
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    """Deduplicate string lists while preserving order."""
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        normalized = value.strip()
+        if normalized and normalized not in seen:
+            result.append(normalized)
+            seen.add(normalized)
+    return result
+
+
+def _append_file_signal(file_signals: dict[str, list[str]], key: str, value: str) -> None:
+    """Append a file path to a signal bucket if it is not already present."""
+    if value and value not in file_signals[key]:
+        file_signals[key].append(value)
+
+
+def _message_timestamp(msg: dict[str, Any]) -> int:
+    """Read timestamp from known Kilo message fields as milliseconds."""
+    for key in ("timestamp", "ts", "created_at", "createdAt"):
+        ts = msg.get(key)
+        if isinstance(ts, (int, float)):
+            value = int(ts)
+            if 0 < value < 10_000_000_000:
+                return value * 1000
+            return value
+        if isinstance(ts, str):
+            try:
+                value = int(float(ts))
+            except ValueError:
+                continue
+            if 0 < value < 10_000_000_000:
+                return value * 1000
+            return value
+    return 0
+
+
+def _metadata_timestamp(value: Any) -> int:
+    """Read metadata timestamp values as milliseconds."""
+    if isinstance(value, (int, float)):
+        ts = int(value)
+    elif isinstance(value, str):
+        try:
+            ts = int(float(value))
+        except ValueError:
+            return 0
+    else:
+        return 0
+    if 0 < ts < 10_000_000_000:
+        return ts * 1000
+    return ts
 
 
 def _resolve_ide_path(ide: str) -> Path | None:
@@ -201,6 +277,38 @@ class KiloCodeAdapter(SessionAdapter):
                     elif isinstance(val, str):
                         file_signals[key] = [val]
 
+                files_in_context = metadata.get("files_in_context", [])
+                if isinstance(files_in_context, list):
+                    for item in files_in_context:
+                        if not isinstance(item, dict):
+                            continue
+                        path = item.get("path")
+                        if not isinstance(path, str):
+                            continue
+                        source = str(item.get("record_source", "")).lower()
+                        state = str(item.get("record_state", "")).lower()
+
+                        if source == "read_tool":
+                            _append_file_signal(file_signals, "files_read", path)
+                        elif source in {"roo_edited", "edited"}:
+                            _append_file_signal(file_signals, "files_edited", path)
+                        elif source in {"user_edited", "user_edit"}:
+                            _append_file_signal(file_signals, "files_user_edited", path)
+                        elif source in {"file_mentioned", "mentioned"}:
+                            _append_file_signal(file_signals, "files_mentioned", path)
+                        else:
+                            _append_file_signal(file_signals, "files_mentioned", path)
+
+                        if (
+                            state == "active"
+                            or item.get("roo_edit_date") is not None
+                            or item.get("user_edit_date") is not None
+                        ):
+                            _append_file_signal(file_signals, "final_files", path)
+
+                for key in file_signals:
+                    file_signals[key] = _dedupe(file_signals[key])
+
             # --- Parse api_conversation_history.json ---
             turns: list[RawTurn] = []
             workspace_dir = ""
@@ -232,8 +340,12 @@ class KiloCodeAdapter(SessionAdapter):
                     content_raw = msg.get("content", "")
                     content = _extract_text(content_raw)
 
-                    ts = msg.get("timestamp", 0)
-                    ts = int(ts) if isinstance(ts, (int, float)) else 0
+                    if not task_raw and role == "user":
+                        task_raw = _extract_tagged_task(content)
+                    if not workspace_dir:
+                        workspace_dir = _extract_workspace_dir(content)
+
+                    ts = _message_timestamp(msg)
 
                     # Track session boundaries
                     if ts > 0:
@@ -259,6 +371,22 @@ class KiloCodeAdapter(SessionAdapter):
                             tool_name=tool_name,
                         )
                         turns.append(turn)
+
+                if session_start == 0 or session_end == 0:
+                    metadata_times: list[int] = []
+                    if metadata_path.is_file():
+                        for item in files_in_context if isinstance(files_in_context, list) else []:
+                            if not isinstance(item, dict):
+                                continue
+                            for key in ("roo_read_date", "roo_edit_date", "user_edit_date"):
+                                ts = _metadata_timestamp(item.get(key))
+                                if ts > 0:
+                                    metadata_times.append(ts)
+                    if metadata_times:
+                        if session_start == 0:
+                            session_start = min(metadata_times)
+                        if session_end == 0:
+                            session_end = max(metadata_times)
 
             # --- Parse ui_messages.json for reasoning ---
             if ui_path.is_file():
@@ -305,6 +433,8 @@ class KiloCodeAdapter(SessionAdapter):
                 model_used=model_used,
                 session_start=session_start,
                 session_end=session_end,
+                edit_count=len(file_signals["files_edited"]),
+                user_edit_count=len(file_signals["files_user_edited"]),
             )
 
         except json.JSONDecodeError as e:
@@ -322,18 +452,28 @@ class KiloCodeAdapter(SessionAdapter):
         """Return default search paths for Kilo Code sessions."""
         paths: list[Path] = []
         for ide in self.get_ide_choices():
+            if self.agent_id == "kilocode" and ide == "AntiGravity":
+                # AntiGravity has its own adapter; scanning it here would
+                # duplicate sessions with the wrong agent attribution.
+                continue
             ide_path = self.get_default_path_for_ide(ide)
-            if ide_path and ide_path.exists():
-                paths.append(ide_path)
+            if ide_path is None:
+                continue
+            try:
+                if ide_path.exists() and ide_path not in paths:
+                    paths.append(ide_path)
+            except OSError as e:
+                logger.warning(f"Cannot access Kilo Code sessions path {ide_path}: {e}")
         # Also check legacy path from config
-        try:
-            from smartfork.config import get_config
-            cfg = get_config()
-            legacy = cfg.kilo_code_tasks_path
-            if legacy != Path(".") and legacy.exists():
-                paths.append(legacy)
-        except Exception:
-            pass
+        if self.agent_id == "kilocode":
+            try:
+                from smartfork.config import get_config
+                cfg = get_config()
+                legacy = cfg.kilo_code_tasks_path
+                if legacy != Path(".") and legacy.exists() and legacy not in paths:
+                    paths.append(legacy)
+            except Exception:
+                pass
         return paths
 
     def get_default_path_for_ide(self, ide: str) -> Path | None:

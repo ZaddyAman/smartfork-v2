@@ -18,8 +18,7 @@ src/smartfork/
 ├── models/      — All Pydantic models, dataclasses, enums, protocols
 ├── providers/   — LLM + Embedding backends
 ├── adapters/    — Session format parsers (7 agents)
-├── indexer/     — Parsing, chunking, embedding, intelligence, supersession
-├── database/    — ChromaDB client, SQLite metadata store
+├── indexer/     — Parsing, chunking, embedding, metadata store, supersession
 ├── search/      — Deterministic + Agentic search engines
 ├── fork/        — Fork context assembler and generator
 ├── vault/       — Obsidian vault generator

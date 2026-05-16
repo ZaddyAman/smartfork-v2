@@ -1,9 +1,6 @@
 """Provider protocols for SmartFork v2."""
 
-from pathlib import Path
 from typing import Protocol
-
-from smartfork.models.session import RawSessionData
 
 
 class LLMProvider(Protocol):
@@ -31,20 +28,3 @@ class EmbeddingProvider(Protocol):
 
     def get_dimensions(self) -> int: ...
 
-
-class SessionAdapter(Protocol):
-    """Protocol for agent-specific session parsers."""
-
-    agent_id: str
-    display_name: str
-    session_type: str  # "dir" | "file" | "sqlite"
-
-    def is_valid_session(self, session_path: Path) -> bool: ...
-
-    def get_session_files(self, session_path: Path) -> list[str]: ...
-
-    def parse_raw(self, session_path: Path) -> RawSessionData | None: ...
-
-    def get_default_sessions_paths(self) -> list[Path]: ...
-
-    def get_ide_choices(self) -> list[str]: ...

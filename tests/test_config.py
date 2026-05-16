@@ -65,7 +65,7 @@ class TestSaveLoadRoundTrip:
     """Tests for save/load round-trip."""
 
     def test_save_and_load_preserves_values(self, tmp_path: Path) -> None:
-        from smartfork.config import CONFIG_DIR, CONFIG_FILE, SmartForkConfig
+        from smartfork.config import SmartForkConfig
 
         with patch("smartfork.config.CONFIG_DIR", tmp_path), \
              patch("smartfork.config.CONFIG_FILE", tmp_path / "config.toml"), \

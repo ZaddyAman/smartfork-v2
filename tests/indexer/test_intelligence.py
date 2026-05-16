@@ -98,14 +98,16 @@ class TestIndexIntelligence:
             _make_session(session_id="s1", task_raw="Fix auth bug"),
             _make_session(session_id="s2", task_raw="Setup Docker config"),
         ]
-        progress: list[tuple[int, int]] = []
-        def track(c: int, t: int) -> None:
-            progress.append((c, t))
+        from smartfork.indexer.indexer import ProgressEvent
+        progress: list[ProgressEvent] = []
+        def track(event: ProgressEvent) -> None:
+            progress.append(event)
 
         result = intelligence.enrich_batch(sessions, progress_callback=track)
         assert len(result) == 2
-        assert len(progress) == 2
-        assert progress[-1] == (2, 2)
+        assert len(progress) >= 12
+        assert result[0].session_id == "s1"
+        assert result[1].session_id == "s2"
 
     def test_enrich_sets_title(self) -> None:
         intelligence = IndexIntelligence(llm=None)

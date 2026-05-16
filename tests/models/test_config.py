@@ -2,7 +2,13 @@
 
 from pathlib import Path
 
-from smartfork.models.config import AgentConfig, IndexingConfig, ProviderConfig, SearchConfig, UIConfig
+from smartfork.models.config import (
+    AgentConfig,
+    IndexingConfig,
+    ProviderConfig,
+    SearchConfig,
+    UIConfig,
+)
 
 
 class TestAgentConfig:

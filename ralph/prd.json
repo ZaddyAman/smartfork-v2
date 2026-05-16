@@ -21,7 +21,8 @@
     "14-tui-app",
     "15-mcp-server",
     "17-testing-strategy",
-    "18-edge-cases"
+    "18-edge-cases",
+    "20-test-plan"
   ],
   "userStories": [
     {
@@ -532,6 +533,23 @@
       ],
       "priority": 27,
       "passes": true
+    },
+    {
+      "id": "US-028",
+      "title": "Implement automated test suites for 119 system test cases",
+      "description": "Create comprehensive automated test suites covering CLI commands, TUI screens, MCP tools, and edge cases per the system test plan. All 119 test cases from specs/20-test-plan.md validated in CI-capable pytest tests with fixtures and mocks.",
+      "spec": "20-test-plan.md",
+      "acceptanceCriteria": [
+        "CLI command tests: setup(5), index(6), search(8), detect-fork(7), fork(8), status(4), vault(5), config(6), theme(4), watch(3), mcp(5), shell(3) — 64 tests with mocks",
+        "TUI screen tests: MainScreen(5), SearchScreen(6), ForkScreen(5), StatusScreen(3), SetupWizardScreen(4), CommandPalette(4), Themes(3) — 30 tests with Textual test helpers",
+        "MCP tool tests: detect_fork(3), fork_session(3), index_status(2), search_sessions(3), list_projects(2), vault_export(2), config_get/set(3), MCP CLI management(4) — 22 tests",
+        "Edge case tests: graceful degradation(6), error handling(5), performance(3) — 14 tests",
+        "All 119 test cases implemented with realistic fixtures and mocks",
+        "All tests pass via pytest tests/ -x",
+        "Existing test suite (209+ tests) continues to pass alongside new tests"
+      ],
+      "priority": 28,
+      "passes": false
     }
   ]
 }

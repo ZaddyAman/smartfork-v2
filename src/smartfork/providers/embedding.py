@@ -17,14 +17,14 @@ QUERY_INSTRUCTION = "Find coding sessions relevant to this developer query"
 class OllamaEmbedder:
     """Embedding provider using local Ollama models with instruction prefixes."""
 
-    def __init__(self, model: str = "qwen3-embedding:0.6b", dimensions: int = 512) -> None:
+    def __init__(self, model: str = "qwen3-embedding:0.6b", dimensions: int = 1024) -> None:
         if not OLLAMA_AVAILABLE:
             raise RuntimeError(
                 "Ollama Python package is not installed. "
                 "Install it with: pip install ollama"
             )
         import ollama as _ollama
-        self._ollama = _ollama
+        self._client = _ollama.Client(timeout=30)
         self.model = model
         self._dimensions = dimensions
 
@@ -53,11 +53,18 @@ class OllamaEmbedder:
         """
         try:
             prompt = self._build_prompt(text, doc_type)
-            response = self._ollama.embed(model=self.model, input=prompt)
+            response = self._client.embed(model=self.model, input=prompt)
             embeddings = response.get("embeddings", [])
             if embeddings:
-                return embeddings[0]  # type: ignore[no-any-return]
-            return []
+                result = embeddings[0]
+                if not result:
+                    raise RuntimeError(
+                        f"Ollama returned empty embedding for model '{self.model}'"
+                    )
+                return result  # type: ignore[no-any-return]
+            raise RuntimeError(
+                f"Ollama returned no embeddings for model '{self.model}'"
+            )
         except Exception as e:
             raise RuntimeError(
                 f"Ollama embedding failed for model '{self.model}': {e}"
@@ -74,18 +81,25 @@ class OllamaEmbedder:
         """
         try:
             prompt = f"{QUERY_INSTRUCTION}: {query}"
-            response = self._ollama.embed(model=self.model, input=prompt)
+            response = self._client.embed(model=self.model, input=prompt)
             embeddings = response.get("embeddings", [])
             if embeddings:
-                return embeddings[0]  # type: ignore[no-any-return]
-            return []
+                result = embeddings[0]
+                if not result:
+                    raise RuntimeError(
+                        f"Ollama returned empty query embedding for model '{self.model}'"
+                    )
+                return result  # type: ignore[no-any-return]
+            raise RuntimeError(
+                f"Ollama returned no query embeddings for model '{self.model}'"
+            )
         except Exception as e:
             raise RuntimeError(
                 f"Ollama query embedding failed for model '{self.model}': {e}"
             ) from e
 
     def embed_batch(self, texts: list[str], doc_type: str = "task_doc") -> list[list[float]]:
-        """Embed a batch of texts with the same instruction prefix.
+        """Embed a batch of texts using Ollama's native batch API.
 
         Args:
             texts: List of texts to embed.
@@ -94,10 +108,30 @@ class OllamaEmbedder:
         Returns:
             List of embedding vectors.
         """
-        results: list[list[float]] = []
-        for text in texts:
-            results.append(self.embed(text, doc_type=doc_type))
-        return results
+        if not texts:
+            return []
+        prompts = [self._build_prompt(t, doc_type) for t in texts]
+        try:
+            response = self._client.embed(model=self.model, input=prompts)
+            embeddings = response.get("embeddings", [])
+            if embeddings:
+                result = [list(e) for e in embeddings]
+                if not all(result):
+                    raise RuntimeError(
+                        f"Ollama returned empty embeddings in batch for model '{self.model}'"
+                    )
+                return result
+            raise RuntimeError(
+                f"Ollama returned no batch embeddings for model '{self.model}'"
+            )
+        except Exception:
+            import traceback
+
+            from loguru import logger
+            logger.warning("Batch embed API failed, falling back to sequential")
+            logger.debug(traceback.format_exc())
+        # Fallback: one at a time
+        return [self.embed(t, doc_type=doc_type) for t in texts]
 
     def get_dimensions(self) -> int:
         """Return the embedding dimension size."""
@@ -284,12 +318,17 @@ class OpenAIEmbedder:
         return self._dimensions
 
 
-def get_embedder(provider: str = "ollama", model: str | None = None) -> EmbeddingProvider:
+def get_embedder(
+    provider: str = "ollama",
+    model: str | None = None,
+    dimensions: int | None = None,
+) -> EmbeddingProvider:
     """Factory function returning the correct embedding provider.
 
     Args:
         provider: One of "ollama", "sentence-transformers", or "openai".
         model: Override the default model name.
+        dimensions: Override the embedding dimension count when supported.
 
     Returns:
         An EmbeddingProvider instance.
@@ -300,13 +339,16 @@ def get_embedder(provider: str = "ollama", model: str | None = None) -> Embeddin
     provider = provider.lower()
 
     if provider == "ollama":
-        return OllamaEmbedder(model=model or "qwen3-embedding:0.6b")
+        return OllamaEmbedder(
+            model=model or "qwen3-embedding:0.6b",
+            dimensions=dimensions or 1024,
+        )
 
     if provider == "sentence-transformers":
-        return SentenceTransformerEmbedder(model=model)
+        return SentenceTransformerEmbedder(model=model, dimensions=dimensions)
 
     if provider == "openai":
-        return OpenAIEmbedder(model=model)
+        return OpenAIEmbedder(model=model, dimensions=dimensions)
 
     raise ValueError(
         f"Unknown embedding provider: '{provider}'. "

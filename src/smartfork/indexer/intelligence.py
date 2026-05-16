@@ -5,6 +5,7 @@ from collections.abc import Callable
 
 from loguru import logger
 
+from smartfork.models.progress import ProgressEvent
 from smartfork.models.session import QualityTag, SessionDocument
 
 # Known tech/framework keywords for fallback extraction
@@ -161,16 +162,29 @@ class IndexIntelligence:
         """
         self.llm = llm
 
-    def enrich(self, session: SessionDocument) -> SessionDocument:
+    def enrich(
+        self,
+        session: SessionDocument,
+        progress_callback: Callable[[ProgressEvent], None] | None = None,
+    ) -> SessionDocument:
         """Enrich a single session with title, summary, quality, tech tags, propositions.
 
         Args:
             session: The SessionDocument to enrich.
+            progress_callback: Optional callback for per-step progress (title,
+                summary, tags, quality, propositions).
 
         Returns:
             The same SessionDocument, mutated with enriched fields.
         """
-        # Title
+        steps_total = 5
+
+        # ── Title ──
+        if progress_callback:
+            progress_callback(ProgressEvent(
+                phase="enriching", enrich_step="title",
+                enrich_done=0, enrich_total=steps_total,
+            ))
         if self.llm:
             try:
                 session.task_raw = self._llm_title(session.task_raw)
@@ -180,7 +194,12 @@ class IndexIntelligence:
         else:
             session.task_raw = _extract_title_fallback(session.task_raw)
 
-        # Summary
+        # ── Summary ──
+        if progress_callback:
+            progress_callback(ProgressEvent(
+                phase="enriching", enrich_step="summary",
+                enrich_done=1, enrich_total=steps_total,
+            ))
         if self.llm:
             try:
                 session.summary_doc = self._llm_summary(session)
@@ -194,7 +213,28 @@ class IndexIntelligence:
                 session.reasoning_docs, session.task_raw
             )
 
-        # Quality tag
+        # ── Tags ──
+        if progress_callback:
+            progress_callback(ProgressEvent(
+                phase="enriching", enrich_step="tags",
+                enrich_done=2, enrich_total=steps_total,
+            ))
+        all_files = session.files_edited + session.files_read + session.files_mentioned
+        if self.llm:
+            try:
+                session.tech_tags = self._llm_tech_tags(session.task_raw, all_files)
+            except Exception as e:
+                logger.warning(f"LLM tech tagging failed, using fallback: {e}")
+                session.tech_tags = _extract_tech_tags(session.task_raw, all_files)
+        else:
+            session.tech_tags = _extract_tech_tags(session.task_raw, all_files)
+
+        # ── Quality ──
+        if progress_callback:
+            progress_callback(ProgressEvent(
+                phase="enriching", enrich_step="quality",
+                enrich_done=3, enrich_total=steps_total,
+            ))
         if self.llm:
             try:
                 session.quality_tag = self._llm_quality(session)
@@ -208,18 +248,12 @@ class IndexIntelligence:
                 session.task_raw, session.reasoning_docs
             )
 
-        # Tech tags
-        all_files = session.files_edited + session.files_read + session.files_mentioned
-        if self.llm:
-            try:
-                session.tech_tags = self._llm_tech_tags(session.task_raw, all_files)
-            except Exception as e:
-                logger.warning(f"LLM tech tagging failed, using fallback: {e}")
-                session.tech_tags = _extract_tech_tags(session.task_raw, all_files)
-        else:
-            session.tech_tags = _extract_tech_tags(session.task_raw, all_files)
-
-        # Propositions
+        # ── Propositions ──
+        if progress_callback:
+            progress_callback(ProgressEvent(
+                phase="enriching", enrich_step="propositions",
+                enrich_done=4, enrich_total=steps_total,
+            ))
         if self.llm:
             try:
                 session.propositions = self._llm_propositions(session.reasoning_docs)
@@ -229,27 +263,30 @@ class IndexIntelligence:
         else:
             session.propositions = _extract_propositions(session.reasoning_docs)
 
+        if progress_callback:
+            progress_callback(ProgressEvent(
+                phase="enriching", enrich_step="done",
+                enrich_done=steps_total, enrich_total=steps_total,
+            ))
+
         return session
 
     def enrich_batch(
         self,
         sessions: list[SessionDocument],
-        progress_callback: Callable[[int, int], None] | None = None,
+        progress_callback: Callable[[ProgressEvent], None] | None = None,
     ) -> list[SessionDocument]:
         """Enrich a batch of sessions.
 
         Args:
             sessions: List of SessionDocuments to enrich.
-            progress_callback: Optional callback(current, total) for progress.
+            progress_callback: Optional callback(ProgressEvent) for progress.
 
         Returns:
             The enriched sessions (same objects, mutated in place).
         """
-        total = len(sessions)
-        for i, session in enumerate(sessions):
-            self.enrich(session)
-            if progress_callback:
-                progress_callback(i + 1, total)
+        for session in sessions:
+            self.enrich(session, progress_callback=progress_callback)
         return sessions
 
     # LLM-based methods (stubs — will call self.llm when available)

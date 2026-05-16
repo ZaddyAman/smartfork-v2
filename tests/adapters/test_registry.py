@@ -1,10 +1,10 @@
 """Tests for adapter registry."""
 
 from pathlib import Path
-from typing import Optional
 
 import pytest
 
+from smartfork.adapters.base import SessionAdapter
 from smartfork.adapters.registry import (
     _REGISTRY,
     clear_registry,
@@ -15,7 +15,6 @@ from smartfork.adapters.registry import (
     list_agent_ids,
     register,
 )
-from smartfork.adapters.base import SessionAdapter
 from smartfork.models.session import RawSessionData
 
 
@@ -31,7 +30,7 @@ class _TestAdapter(SessionAdapter):
     def get_session_files(self, session_path: Path) -> list[str]:
         return []
 
-    def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+    def parse_raw(self, session_path: Path) -> RawSessionData | None:
         return None
 
 
@@ -55,7 +54,7 @@ class TestRegisterDecorator:
             def get_session_files(self, session_path: Path) -> list[str]:
                 return []
 
-            def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+            def parse_raw(self, session_path: Path) -> RawSessionData | None:
                 return None
 
         assert "adapter_1" in _REGISTRY
@@ -74,7 +73,7 @@ class TestRegisterDecorator:
             def get_session_files(self, session_path: Path) -> list[str]:
                 return ["a.txt"]
 
-            def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+            def parse_raw(self, session_path: Path) -> RawSessionData | None:
                 return None
 
         assert Adapter2 is not None  # Class still usable
@@ -99,7 +98,7 @@ class TestRegisterDecorator:
                 def get_session_files(self, session_path: Path) -> list[str]:
                     return []
 
-                def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+                def parse_raw(self, session_path: Path) -> RawSessionData | None:
                     return None
 
     def test_register_overwrites_duplicate(self) -> None:
@@ -115,7 +114,7 @@ class TestRegisterDecorator:
             def get_session_files(self, session_path: Path) -> list[str]:
                 return []
 
-            def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+            def parse_raw(self, session_path: Path) -> RawSessionData | None:
                 return None
 
         @register
@@ -130,7 +129,7 @@ class TestRegisterDecorator:
             def get_session_files(self, session_path: Path) -> list[str]:
                 return ["x"]
 
-            def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+            def parse_raw(self, session_path: Path) -> RawSessionData | None:
                 return None
 
         assert isinstance(_REGISTRY["duplicate"], Second)
@@ -194,7 +193,7 @@ class TestListAdapters:
             def get_session_files(self, session_path: Path) -> list[str]:
                 return []
 
-            def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+            def parse_raw(self, session_path: Path) -> RawSessionData | None:
                 return None
 
         @register
@@ -209,7 +208,7 @@ class TestListAdapters:
             def get_session_files(self, session_path: Path) -> list[str]:
                 return ["x"]
 
-            def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+            def parse_raw(self, session_path: Path) -> RawSessionData | None:
                 return None
 
         adapters = list_adapters()

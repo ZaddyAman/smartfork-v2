@@ -1,5 +1,6 @@
 """Tests for LLM provider implementations."""
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -19,7 +20,7 @@ class TestLoadSecrets:
             result = _load_secrets()
             assert result == {}
 
-    def test_parses_key_value_pairs(self, tmp_path) -> None:
+    def test_parses_key_value_pairs(self, tmp_path: Path) -> None:
         secrets_dir = tmp_path / ".smartfork"
         secrets_dir.mkdir()
         secrets_file = secrets_dir / "secrets.env"
@@ -186,12 +187,14 @@ class TestGetLLM:
             assert isinstance(llm, OllamaLLM)
 
     def test_returns_anthropic(self) -> None:
-        llm = get_llm("anthropic", model="test-model")  # type: ignore[arg-type]
+        with patch.dict("os.environ", {"ANTHROPIC_API_KEY": "test-key"}):
+            llm = get_llm("anthropic", model="test-model")
         assert isinstance(llm, AnthropicLLM)
         assert llm.model == "test-model"
 
     def test_returns_openai(self) -> None:
-        llm = get_llm("openai", model="gpt-4o")  # type: ignore[arg-type]
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+            llm = get_llm("openai", model="gpt-4o")
         assert isinstance(llm, OpenAILLM)
         assert llm.model == "gpt-4o"
 
@@ -200,5 +203,6 @@ class TestGetLLM:
             get_llm("unknown")
 
     def test_case_insensitive(self) -> None:
-        llm = get_llm("OpenAI", model="gpt-4")  # type: ignore[arg-type]
+        with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
+            llm = get_llm("OpenAI", model="gpt-4")
         assert isinstance(llm, OpenAILLM)

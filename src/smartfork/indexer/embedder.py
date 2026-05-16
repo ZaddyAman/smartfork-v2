@@ -38,13 +38,22 @@ class EmbeddingPipeline:
     def collection(self) -> Any:
         """Lazy-load the ChromaDB collection."""
         if self._collection is None:
-            import chromadb
-            self.persist_dir.mkdir(parents=True, exist_ok=True)
-            client = chromadb.PersistentClient(path=str(self.persist_dir))
-            self._collection = client.get_or_create_collection(
-                name=self.collection_name,
-                metadata={"hnsw:space": "cosine"},
-            )
+            try:
+                import chromadb
+                self.persist_dir.mkdir(parents=True, exist_ok=True)
+                client = chromadb.PersistentClient(path=str(self.persist_dir))
+                self._collection = client.get_or_create_collection(
+                    name=self.collection_name,
+                    metadata={"hnsw:space": "cosine"},
+                )
+            except Exception as exc:
+                logger.error(f"Vector DB appears corrupted: {exc}")
+                raise RuntimeError(
+                    f"Vector database appears corrupted or incompatible "
+                    f"(common on Windows). Reset with: "
+                    f"Remove-Item -Recurse -Force {self.persist_dir}\n"
+                    f"Then run: smartfork index --full"
+                ) from exc
         return self._collection
 
     def _retry_with_backoff(
@@ -97,46 +106,73 @@ class EmbeddingPipeline:
         stored = 0
         total = len(chunks)
 
-        # Process in batches
-        for i in range(0, total, self.batch_size):
-            batch = chunks[i : i + self.batch_size]
+        # Group chunks by doc_type for instruction-aware embedding
+        by_type: dict[str, list[Chunk]] = {}
+        for chunk in chunks:
+            by_type.setdefault(chunk.doc_type, []).append(chunk)
 
-            # Separate chunks by doc_type for instruction-aware embedding
-            texts: list[str] = []
-            ids: list[str] = []
-            metadatas: list[dict[str, Any]] = []
+        all_ids: list[str] = []
+        all_embeddings: list[list[float]] = []
+        all_texts: list[str] = []
+        all_metadatas: list[dict[str, Any]] = []
 
-            for chunk in batch:
-                texts.append(chunk.content)
-                ids.append(chunk.chunk_id)
-                metadatas.append({
-                    "session_id": chunk.session_id,
-                    "doc_type": chunk.doc_type,
-                    "chunk_index": str(chunk.chunk_index),
-                    "is_code_block": str(chunk.is_code_block),
-                })
+        for doc_type, type_chunks in by_type.items():
+            # Process each doc_type group in batches
+            for i in range(0, len(type_chunks), self.batch_size):
+                batch = type_chunks[i : i + self.batch_size]
 
-            # Embed with retry — one text at a time (batch embedding not supported by all providers)
-            embeddings: list[list[float]] = []
-            for text in texts:
-                emb = self._retry_with_backoff(self.embedder.embed, text)
-                embeddings.append(emb)
+                texts: list[str] = []
+                ids: list[str] = []
+                metadatas: list[dict[str, Any]] = []
 
-            # Upsert to ChromaDB
+                for chunk in batch:
+                    texts.append(chunk.content)
+                    ids.append(chunk.chunk_id)
+                    metadatas.append({
+                        "session_id": chunk.session_id,
+                        "doc_type": chunk.doc_type,
+                        "chunk_index": str(chunk.chunk_index),
+                        "is_code_block": str(chunk.is_code_block),
+                    })
+
+                # Embed with retry — use batch when available, fall back to one-at-a-time
+                embeddings: list[list[float]] = []
+                if hasattr(self.embedder, "embed_batch"):
+                    try:
+                        embeddings = self._retry_with_backoff(
+                            self.embedder.embed_batch, texts, doc_type=doc_type
+                        )
+                    except Exception as e:
+                        logger.debug(f"Batch embed fell back to sequential: {e}")
+                        for text in texts:
+                            emb = self._retry_with_backoff(self.embedder.embed, text, doc_type=doc_type)
+                            embeddings.append(emb)
+                else:
+                    for text in texts:
+                        emb = self._retry_with_backoff(self.embedder.embed, text, doc_type=doc_type)
+                        embeddings.append(emb)
+
+                all_ids.extend(ids)
+                all_embeddings.extend(embeddings)
+                all_texts.extend(texts)
+                all_metadatas.extend(metadatas)
+
+        # Upsert all chunks to ChromaDB in one go
+        if all_ids:
             try:
-                self.collection.add(
-                    ids=ids,
-                    embeddings=embeddings,
-                    documents=texts,
-                    metadatas=metadatas,
+                self.collection.upsert(
+                    ids=all_ids,
+                    embeddings=all_embeddings,
+                    documents=all_texts,
+                    metadatas=all_metadatas,
                 )
-                stored += len(batch)
+                stored = len(all_ids)
             except Exception as e:
-                logger.error(f"Failed to upsert batch to ChromaDB: {e}")
+                logger.error(f"Failed to upsert to ChromaDB: {e}")
                 raise
 
-            if progress_callback:
-                progress_callback(min(i + self.batch_size, total), total)
+        if progress_callback:
+            progress_callback(total, total)
 
         return stored
 

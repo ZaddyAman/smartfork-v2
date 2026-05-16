@@ -1,6 +1,7 @@
 """Tests for provider protocols."""
 
-from smartfork.providers.protocols import EmbeddingProvider, LLMProvider, SessionAdapter
+from smartfork.providers.protocols import EmbeddingProvider, LLMProvider
+from smartfork.adapters.base import SessionAdapter
 
 
 class TestLLMProvider:

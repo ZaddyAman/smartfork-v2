@@ -13,6 +13,28 @@ except ImportError:
     ollama = None  # type: ignore[assignment]
 
 
+def _start_ollama_server() -> bool:
+    """Try to start the Ollama server in the background.
+
+    Returns:
+        True if server was started successfully, False otherwise.
+    """
+    if not shutil.which("ollama"):
+        return False
+    try:
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+        )
+        logger.info("Started Ollama server in background")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to start Ollama server: {e}")
+        return False
+
+
 def check_ollama_available(model: str) -> bool:
     """Check if Ollama is installed, running, and has the model pulled.
 
@@ -36,20 +58,44 @@ def check_ollama_available(model: str) -> bool:
     try:
         assert ollama is not None
         response = ollama.list()
-        model_names = [m.get("name", "") for m in response.get("models", [])]
+        model_list = response.models if hasattr(response, "models") else response.get("models", [])
+        model_names = [m.model if hasattr(m, "model") else m.get("name", "") for m in model_list]
         # Strip tags for comparison (model can be "qwen2.5-coder:7b" or just "qwen2.5-coder")
         model_base = model.split(":")[0]
         for name in model_names:
+            if not name:
+                continue
             if name == model or name.startswith(model_base):
                 return True
         logger.warning(f"Model '{model}' is not pulled. Pull it with: ollama pull {model}")
         return False
-    except Exception as e:
-        logger.error(
-            f"Cannot connect to Ollama. Is it running? Start it with: ollama serve\n"
-            f"Error: {e}"
-        )
-        return False
+    except Exception:
+        # Server not running — try auto-start
+        logger.info("Ollama server not running, attempting to start...")
+        if _start_ollama_server():
+            import time
+            time.sleep(2)  # Wait for server to boot
+            try:
+                assert ollama is not None
+                response = ollama.list()
+                model_list = response.models if hasattr(response, "models") else response.get("models", [])
+                model_names = [m.model if hasattr(m, "model") else m.get("name", "") for m in model_list]
+                model_base = model.split(":")[0]
+                for name in model_names:
+                    if not name:
+                        continue
+                    if name == model or name.startswith(model_base):
+                        return True
+                logger.warning(f"Model '{model}' is not pulled. Pull it with: ollama pull {model}")
+                return False
+            except Exception as e:
+                logger.error(f"Ollama server started but still unreachable: {e}")
+                return False
+        else:
+            logger.error(
+                "Cannot connect to Ollama and failed to start it. Start it manually with: ollama serve"
+            )
+            return False
 
 
 def ensure_ollama_model(model: str) -> None:
@@ -76,7 +122,8 @@ def ensure_ollama_model(model: str) -> None:
         assert ollama is not None
         # Check if model is already pulled
         response = ollama.list()
-        model_names = [m.get("name", "") for m in response.get("models", [])]
+        model_list = response.models if hasattr(response, "models") else response.get("models", [])
+        model_names = [m.model if hasattr(m, "model") else m.get("name", "") for m in model_list]
         if model in model_names:
             logger.info(f"Model '{model}' is already available.")
             return
@@ -103,7 +150,8 @@ def list_available_ollama_models() -> list[str]:
     try:
         assert ollama is not None
         response = ollama.list()
-        return [m.get("name", "") for m in response.get("models", []) if m.get("name")]
+        model_list = response.models if hasattr(response, "models") else response.get("models", [])
+        return [m.model if hasattr(m, "model") else m.get("name", "") for m in model_list]
     except Exception:
         return []
 

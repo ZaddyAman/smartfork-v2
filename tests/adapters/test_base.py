@@ -1,7 +1,6 @@
 """Tests for SessionAdapter base class."""
 
 from pathlib import Path
-from typing import Optional
 
 import pytest
 
@@ -36,7 +35,7 @@ class TestSessionAdapterABC:
             def get_session_files(self, session_path: Path) -> list[str]:
                 return []
 
-            def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+            def parse_raw(self, session_path: Path) -> RawSessionData | None:
                 return None
 
         adapter = CompleteAdapter()
@@ -56,7 +55,7 @@ class TestSessionAdapterABC:
             def get_session_files(self, session_path: Path) -> list[str]:
                 return []
 
-            def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+            def parse_raw(self, session_path: Path) -> RawSessionData | None:
                 return None
 
         adapter = MinimalAdapter()
@@ -76,7 +75,7 @@ class TestSessionAdapterABC:
             def get_session_files(self, session_path: Path) -> list[str]:
                 return []
 
-            def parse_raw(self, session_path: Path) -> Optional[RawSessionData]:
+            def parse_raw(self, session_path: Path) -> RawSessionData | None:
                 return None
 
             def get_default_sessions_paths(self) -> list[Path]:

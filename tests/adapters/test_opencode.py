@@ -6,7 +6,6 @@ import sqlite3
 from pathlib import Path
 
 from smartfork.adapters.opencode import (
-    get_all_sessions_from_db,
     get_default_opencode_db_path,
 )
 from smartfork.adapters.registry import clear_registry, get_adapter
@@ -18,10 +17,16 @@ def _create_test_db(db_path: Path) -> None:
     conn.execute("""
         CREATE TABLE session (
             id TEXT PRIMARY KEY,
+            project_id TEXT,
+            parent_id TEXT,
+            slug TEXT,
+            directory TEXT,
             title TEXT,
-            created_at INTEGER,
-            model TEXT,
-            workspace_dir TEXT
+            version TEXT,
+            time_created INTEGER,
+            time_updated INTEGER,
+            agent TEXT,
+            model TEXT
         )
     """)
     conn.execute("""
@@ -29,7 +34,8 @@ def _create_test_db(db_path: Path) -> None:
             id TEXT PRIMARY KEY,
             session_id TEXT,
             role TEXT,
-            created_at INTEGER,
+            time_created INTEGER,
+            data TEXT,
             FOREIGN KEY (session_id) REFERENCES session(id)
         )
     """)
@@ -39,72 +45,80 @@ def _create_test_db(db_path: Path) -> None:
             message_id TEXT,
             type TEXT,
             content TEXT,
-            metadata TEXT,
+            time_created INTEGER,
+            data TEXT,
             FOREIGN KEY (message_id) REFERENCES message(id)
         )
     """)
 
     # Insert a session
     conn.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO session (id, directory, title, time_created, time_updated, model) VALUES (?, ?, ?, ?, ?, ?)",
         (
             "sess-001",
+            "/home/dev/project",
             "Fix async database bug",
             1700000100000,
+            1700000100000,
             "claude-sonnet-4-20250514",
-            "/home/dev/project",
         ),
     )
     conn.execute(
-        "INSERT INTO session VALUES (?, ?, ?, ?, ?)",
-        ("sess-002", "Refactor config system", 1700000000000, "gpt-4o", "/home/dev/project")
+        "INSERT INTO session (id, directory, title, time_created, time_updated, model) VALUES (?, ?, ?, ?, ?, ?)",
+        ("sess-002", "/home/dev/project", "Refactor config system", 1700000000000, 1700000000000, "gpt-4o")
     )
 
     # Insert messages for sess-001
     conn.execute(
-        "INSERT INTO message VALUES (?, ?, ?, ?)",
-        ("msg-1", "sess-001", "user", 1700000001000)
+        "INSERT INTO message (id, session_id, role, time_created, data) VALUES (?, ?, ?, ?, ?)",
+        ("msg-1", "sess-001", "user", 1700000001000, json.dumps({"role": "user"}))
     )
     conn.execute(
-        "INSERT INTO message VALUES (?, ?, ?, ?)",
-        ("msg-2", "sess-001", "assistant", 1700000002000)
+        "INSERT INTO message (id, session_id, role, time_created, data) VALUES (?, ?, ?, ?, ?)",
+        ("msg-2", "sess-001", "assistant", 1700000002000, json.dumps({"role": "assistant"}))
     )
     conn.execute(
-        "INSERT INTO message VALUES (?, ?, ?, ?)",
-        ("msg-3", "sess-001", "assistant", 1700000003000)
+        "INSERT INTO message (id, session_id, role, time_created, data) VALUES (?, ?, ?, ?, ?)",
+        ("msg-3", "sess-001", "assistant", 1700000003000, json.dumps({"role": "assistant"}))
     )
 
     # Insert parts
     conn.execute(
-        "INSERT INTO part (message_id, type, content) VALUES (?, ?, ?)",
-        ("msg-1", "text", "I'm getting a deadlock in the async database layer. How do I fix it?")
+        "INSERT INTO part (message_id, type, time_created, data) VALUES (?, ?, ?, ?)",
+        ("msg-1", "text", 1700000001000, json.dumps({"type": "text", "text": "I'm getting a deadlock in the async database layer. How do I fix it?"}))
     )
     conn.execute(
-        "INSERT INTO part (message_id, type, content, metadata) VALUES (?, ?, ?, ?)",
+        "INSERT INTO part (message_id, type, time_created, data) VALUES (?, ?, ?, ?)",
         (
             "msg-2",
-            "tool_use",
-            "read_file src/database.py",
-            json.dumps({"file_path": "src/database.py"}),
+            "tool",
+            1700000002000,
+            json.dumps({
+                "type": "tool",
+                "tool": "read_file",
+                "state": {"input": {"file_path": "src/database.py"}}
+            }),
         ),
     )
     conn.execute(
-        "INSERT INTO part (message_id, type, content) VALUES (?, ?, ?)",
+        "INSERT INTO part (message_id, type, time_created, data) VALUES (?, ?, ?, ?)",
         (
             "msg-2",
             "reasoning",
-            (
-                "The deadlock is caused by a circular wait between two async tasks "
-                "both trying to acquire the same connection pool lock."
-            ),
+            1700000002500,
+            json.dumps({
+                "type": "reasoning",
+                "text": "[Reasoning] The deadlock is caused by a circular wait between two async tasks both trying to acquire the same connection pool lock."
+            }),
         ),
     )
     conn.execute(
-        "INSERT INTO part (message_id, type, content) VALUES (?, ?, ?)",
+        "INSERT INTO part (message_id, type, time_created, data) VALUES (?, ?, ?, ?)",
         (
             "msg-3",
             "text",
-            "The issue is a connection pool contention. Add a timeout to prevent deadlocks.",
+            1700000003000,
+            json.dumps({"type": "text", "text": "The issue is a connection pool contention. Add a timeout to prevent deadlocks."}),
         ),
     )
 
@@ -123,13 +137,17 @@ class TestOpenCodeModuleHelpers:
         conn = sqlite3.connect(str(db_path))
         conn.execute("CREATE TABLE session (id TEXT, title TEXT, created_at INTEGER, model TEXT)")
         conn.close()
-        sessions = get_all_sessions_from_db(db_path)
+        from smartfork.adapters.opencode import OpenCodeAdapter
+        adapter = OpenCodeAdapter()
+        sessions = adapter.get_all_sessions_from_db(db_path)
         assert sessions == []
 
     def test_get_all_sessions(self, tmp_path: Path) -> None:
         db_path = tmp_path / "test.db"
         _create_test_db(db_path)
-        sessions = get_all_sessions_from_db(db_path)
+        from smartfork.adapters.opencode import OpenCodeAdapter
+        adapter = OpenCodeAdapter()
+        sessions = adapter.get_all_sessions_from_db(db_path)
         assert len(sessions) >= 1
 
 

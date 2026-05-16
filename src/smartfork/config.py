@@ -47,7 +47,7 @@ class SmartForkConfig(BaseSettings):
     # Models
     embedding_provider: str = "ollama"
     embedding_model: str = "qwen3-embedding:0.6b"
-    embedding_dimensions: int = 512
+    embedding_dimensions: int = 1024
     llm_provider: str = "ollama"
     llm_model: str = "qwen2.5-coder:7b"
     llm_base_url: str | None = None

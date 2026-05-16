@@ -119,8 +119,7 @@ class AgenticSearchEngine:
     ) -> list[dict[str, Any]]:
         """Step 2: Execute multiple search strategies in parallel.
 
-        In production, this spawns 5 Smolagents workers.
-        Here we simulate with different search configurations.
+        Uses ThreadPoolExecutor for concurrent search across variants.
 
         Args:
             qd: Query decomposition with search variants.
@@ -129,18 +128,32 @@ class AgenticSearchEngine:
         Returns:
             Combined and deduplicated results.
         """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         all_results: list[dict[str, Any]] = []
 
-        # Use each search variant as a different "worker strategy"
-        for variant in qd.search_variants[:5]:
+        def _search_variant(variant: str) -> list[dict[str, Any]]:
+            results: list[dict[str, Any]] = []
             cards = self.deterministic.search(variant, top_k)
             for card in cards:
-                all_results.append({
+                results.append({
                     "session_id": card.session_id,
                     "title": card.title,
                     "match_score": card.match_score,
                     "variant": variant,
                 })
+            return results
+
+        with ThreadPoolExecutor(max_workers=min(5, len(qd.search_variants))) as executor:
+            futures = {
+                executor.submit(_search_variant, v): v
+                for v in qd.search_variants[:5]
+            }
+            for future in as_completed(futures):
+                try:
+                    all_results.extend(future.result())
+                except Exception as e:
+                    logger.warning(f"Search variant failed: {e}")
 
         return self._deduplicate(all_results)
 

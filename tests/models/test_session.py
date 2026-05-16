@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-import pytest
-
 from smartfork.models.session import QualityTag, RawSessionData, RawTurn, SessionDocument
 
 
@@ -20,7 +18,12 @@ class TestRawTurn:
             assert turn.role == role
 
     def test_tool_call(self) -> None:
-        turn = RawTurn(role="assistant", content="tool result", is_tool_call=True, tool_name="read_file")
+        turn = RawTurn(
+            role="assistant",
+            content="tool result",
+            is_tool_call=True,
+            tool_name="read_file",
+        )
         assert turn.is_tool_call is True
         assert turn.tool_name == "read_file"
 
@@ -71,7 +74,10 @@ class TestRawSessionData:
 
     def test_extra_field_can_store_additional_data(self) -> None:
         data = RawSessionData(
-            session_id="s1", agent_id="test", session_path=Path("/tmp"), extra={"custom_key": "value"}
+            session_id="s1",
+            agent_id="test",
+            session_path=Path("/tmp"),
+            extra={"custom_key": "value"},
         )
         assert data.extra["custom_key"] == "value"
 

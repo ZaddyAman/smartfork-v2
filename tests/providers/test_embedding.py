@@ -39,94 +39,129 @@ class TestOllamaEmbedder:
             OllamaEmbedder()
 
     def test_embed_returns_vector(self) -> None:
-        mock_ollama = MagicMock()
-        mock_ollama.embed.return_value = {"embeddings": [[0.1, 0.2, 0.3]]}
+        mock_client = MagicMock()
+        mock_client.embed.return_value = {"embeddings": [[0.1, 0.2, 0.3]]}
         with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
-             patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
+              patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
             embedder = OllamaEmbedder.__new__(OllamaEmbedder)
-            embedder._ollama = mock_ollama
+            embedder._client = mock_client
             embedder.model = "qwen3-embedding:0.6b"
-            embedder._dimensions = 512
+            embedder._dimensions = 1024
             result = embedder.embed("test text")
             assert result == [0.1, 0.2, 0.3]
 
     def test_embed_prepends_instruction(self) -> None:
-        mock_ollama = MagicMock()
-        mock_ollama.embed.return_value = {"embeddings": [[0.1]]}
+        mock_client = MagicMock()
+        mock_client.embed.return_value = {"embeddings": [[0.1]]}
         with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
-             patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
+              patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
             embedder = OllamaEmbedder.__new__(OllamaEmbedder)
-            embedder._ollama = mock_ollama
+            embedder._client = mock_client
             embedder.model = "test"
-            embedder._dimensions = 512
+            embedder._dimensions = 1024
             embedder.embed("test text", doc_type="task_doc")
-            call_input = mock_ollama.embed.call_args[1]["input"]
+            call_input = mock_client.embed.call_args[1]["input"]
             assert "Represent this developer" in call_input
             assert "test text" in call_input
 
     def test_embed_no_instruction_for_unknown_doc_type(self) -> None:
-        mock_ollama = MagicMock()
-        mock_ollama.embed.return_value = {"embeddings": [[0.1]]}
+        mock_client = MagicMock()
+        mock_client.embed.return_value = {"embeddings": [[0.1]]}
         with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
-             patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
+              patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
             embedder = OllamaEmbedder.__new__(OllamaEmbedder)
-            embedder._ollama = mock_ollama
+            embedder._client = mock_client
             embedder.model = "test"
-            embedder._dimensions = 512
+            embedder._dimensions = 1024
             embedder.embed("test text", doc_type="unknown_type")
-            call_input = mock_ollama.embed.call_args[1]["input"]
+            call_input = mock_client.embed.call_args[1]["input"]
             assert call_input == "test text"
 
     def test_embed_query_prepends_query_instruction(self) -> None:
-        mock_ollama = MagicMock()
-        mock_ollama.embed.return_value = {"embeddings": [[0.1]]}
+        mock_client = MagicMock()
+        mock_client.embed.return_value = {"embeddings": [[0.1]]}
         with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
-             patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
+              patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
             embedder = OllamaEmbedder.__new__(OllamaEmbedder)
-            embedder._ollama = mock_ollama
+            embedder._client = mock_client
             embedder.model = "test"
-            embedder._dimensions = 512
+            embedder._dimensions = 1024
             embedder.embed_query("how to fix error")
-            call_input = mock_ollama.embed.call_args[1]["input"]
+            call_input = mock_client.embed.call_args[1]["input"]
             assert QUERY_INSTRUCTION in call_input
             assert "how to fix error" in call_input
 
     def test_embed_batch_returns_all_vectors(self) -> None:
-        mock_ollama = MagicMock()
-        mock_ollama.embed.side_effect = [
-            {"embeddings": [[0.1, 0.2]]},
-            {"embeddings": [[0.3, 0.4]]},
-        ]
+        mock_client = MagicMock()
+        mock_client.embed.return_value = {"embeddings": [[0.1, 0.2], [0.3, 0.4]]}
         with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
-             patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
+              patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
             embedder = OllamaEmbedder.__new__(OllamaEmbedder)
-            embedder._ollama = mock_ollama
+            embedder._client = mock_client
             embedder.model = "test"
-            embedder._dimensions = 512
+            embedder._dimensions = 1024
             result = embedder.embed_batch(["text1", "text2"])
             assert len(result) == 2
             assert result[0] == [0.1, 0.2]
+            assert result[1] == [0.3, 0.4]
 
-    def test_embed_with_empty_embeddings(self) -> None:
-        mock_ollama = MagicMock()
-        mock_ollama.embed.return_value = {"embeddings": []}
+    def test_embed_raises_with_empty_embeddings(self) -> None:
+        mock_client = MagicMock()
+        mock_client.embed.return_value = {"embeddings": []}
         with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
              patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
             embedder = OllamaEmbedder.__new__(OllamaEmbedder)
-            embedder._ollama = mock_ollama
+            embedder._client = mock_client
             embedder.model = "test"
-            embedder._dimensions = 512
-            result = embedder.embed("test")
-            assert result == []
+            embedder._dimensions = 1024
+            with pytest.raises(RuntimeError, match="Ollama returned no embeddings"):
+                embedder.embed("test")
+
+    def test_embed_raises_with_empty_vector(self) -> None:
+        """Ollama returns embeddings list with empty inner list."""
+        mock_client = MagicMock()
+        mock_client.embed.return_value = {"embeddings": [[]]}
+        with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
+             patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
+            embedder = OllamaEmbedder.__new__(OllamaEmbedder)
+            embedder._client = mock_client
+            embedder.model = "test"
+            embedder._dimensions = 1024
+            with pytest.raises(RuntimeError, match="Ollama returned empty embedding"):
+                embedder.embed("test")
+
+    def test_embed_query_raises_with_empty_embeddings(self) -> None:
+        mock_client = MagicMock()
+        mock_client.embed.return_value = {"embeddings": []}
+        with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
+             patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
+            embedder = OllamaEmbedder.__new__(OllamaEmbedder)
+            embedder._client = mock_client
+            embedder.model = "test"
+            embedder._dimensions = 1024
+            with pytest.raises(RuntimeError, match="Ollama returned no query embeddings"):
+                embedder.embed_query("test")
+
+    def test_embed_batch_raises_with_empty_vectors(self) -> None:
+        """Batch returns list with some empty inner lists, triggers fallback."""
+        mock_client = MagicMock()
+        mock_client.embed.return_value = {"embeddings": [[0.1], []]}
+        with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
+             patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
+            embedder = OllamaEmbedder.__new__(OllamaEmbedder)
+            embedder._client = mock_client
+            embedder.model = "test"
+            embedder._dimensions = 1024
+            embedder.embed_batch(["t1", "t2"])
 
     def test_get_dimensions(self) -> None:
         with patch("smartfork.providers.embedding.OLLAMA_AVAILABLE", True), \
-             patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
+              patch("smartfork.providers.embedding.check_ollama_available", return_value=True):
             embedder = OllamaEmbedder.__new__(OllamaEmbedder)
-            embedder._ollama = MagicMock()
+            embedder._client = MagicMock()
             embedder.model = "test"
-            embedder._dimensions = 768
-            assert embedder.get_dimensions() == 768
+            embedder._dimensions = 1024
+            assert embedder.get_dimensions() == 1024
 
 
 class TestSentenceTransformerEmbedder:

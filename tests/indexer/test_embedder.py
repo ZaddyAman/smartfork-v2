@@ -98,13 +98,13 @@ class TestEmbeddingPipeline:
         embedder = MockEmbedder()
         call_count = [0]
 
-        def flaky_embed(text: str, doc_type: str = "task_doc") -> list[float]:
+        def flaky_embed_batch(texts: list[str], doc_type: str = "task_doc") -> list[list[float]]:
             call_count[0] += 1
             if call_count[0] < 3:
                 raise RuntimeError("Temporary failure")
-            return [0.1, 0.2, 0.3]
+            return [[0.1, 0.2, 0.3]]
 
-        embedder.embed = flaky_embed  # type: ignore[method-assign]
+        embedder.embed_batch = flaky_embed_batch  # type: ignore[method-assign]
 
         pipeline = EmbeddingPipeline(
             embedder=embedder,  # type: ignore[arg-type]
@@ -139,3 +139,63 @@ class TestEmbeddingPipeline:
         stats = pipeline.get_collection_stats()
         assert stats["document_count"] >= 1
         assert stats["collection_name"] == "test_collection"
+
+    def test_embed_and_store_empty_chunks(self, pipeline) -> None:
+        stored = pipeline.embed_and_store([])
+        assert stored == 0
+
+    def test_embed_and_store_mixed_doc_types(self, tmp_path) -> None:
+        """Verify each doc_type gets the correct instruction prefix."""
+        embedder = MockEmbedder()
+        received_doc_types: list[str] = []
+
+        def track_doc_type(texts: list[str], doc_type: str = "task_doc") -> list[list[float]]:
+            received_doc_types.append(doc_type)
+            return [[0.1]] * len(texts)
+
+        embedder.embed_batch = track_doc_type  # type: ignore[method-assign]
+
+        pipeline = EmbeddingPipeline(
+            embedder=embedder,  # type: ignore[arg-type]
+            persist_dir=tmp_path / "mixed_types",
+            batch_size=10,
+            max_retries=1,
+        )
+
+        chunks = [
+            Chunk(chunk_id="c1", session_id="s1", content="task content", doc_type="task_doc", chunk_index=0),
+            Chunk(chunk_id="c2", session_id="s1", content="reasoning content", doc_type="reasoning_doc", chunk_index=1),
+            Chunk(chunk_id="c3", session_id="s1", content="summary content", doc_type="summary_doc", chunk_index=2),
+            Chunk(chunk_id="c4", session_id="s1", content="proposition content", doc_type="proposition", chunk_index=3),
+        ]
+
+        stored = pipeline.embed_and_store(chunks)
+        assert stored == 4
+        assert set(received_doc_types) == {"task_doc", "reasoning_doc", "summary_doc", "proposition"}
+
+    def test_keyboard_interrupt_not_swallowed(self, tmp_path) -> None:
+        """Verify KeyboardInterrupt propagates instead of being caught."""
+        embedder = MockEmbedder()
+
+        def raise_keyboard_interrupt(texts: list[str], doc_type: str = "task_doc") -> list[list[float]]:
+            raise KeyboardInterrupt("user cancelled")
+
+        embedder.embed_batch = raise_keyboard_interrupt  # type: ignore[method-assign]
+
+        pipeline = EmbeddingPipeline(
+            embedder=embedder,  # type: ignore[arg-type]
+            persist_dir=tmp_path / "ki_test",
+            max_retries=1,
+            batch_size=1,
+        )
+
+        chunk = Chunk(
+            chunk_id="ki_chunk",
+            session_id="sess1",
+            content="test",
+            doc_type="task_doc",
+            chunk_index=0,
+        )
+
+        with pytest.raises(KeyboardInterrupt):
+            pipeline.embed_and_store([chunk])

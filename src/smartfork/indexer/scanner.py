@@ -1,20 +1,27 @@
 """Session scanner — discovers sessions via adapters."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 from loguru import logger
 
 from smartfork.adapters.registry import get_adapter, list_agent_ids
+from smartfork.models.progress import ProgressEvent
 
 
 class SessionScanner:
     """Scans the filesystem for coding sessions using registered adapters."""
 
-    def scan(self, agent_ids: list[str] | None = None) -> list[tuple[str, Path]]:
+    def scan(
+        self,
+        agent_ids: list[str] | None = None,
+        progress_callback: Callable[[ProgressEvent], None] | None = None,
+    ) -> list[tuple[str, Path]]:
         """Scan for sessions across all (or specified) adapters.
 
         Args:
             agent_ids: List of agent IDs to scan. None means all registered.
+            progress_callback: Optional callback for live per-agent scan progress.
 
         Returns:
             List of (agent_id, session_path) tuples.
@@ -23,6 +30,22 @@ class SessionScanner:
             agent_ids = list_agent_ids()
 
         sessions: list[tuple[str, Path]] = []
+
+        # Signal all pending
+        for agent_id in agent_ids:
+            adapter = get_adapter(agent_id)
+            if adapter is None:
+                logger.warning(f"No adapter found for '{agent_id}', skipping.")
+                continue
+            if progress_callback:
+                search_paths = adapter.get_default_sessions_paths()
+                progress_callback(ProgressEvent(
+                    phase="scanning",
+                    agent_id=agent_id,
+                    scan_status="pending",
+                    scan_count=0,
+                    scan_path=str(search_paths[0]) if search_paths else "",
+                ))
 
         for agent_id in agent_ids:
             adapter = get_adapter(agent_id)
@@ -33,7 +56,26 @@ class SessionScanner:
             search_paths = adapter.get_default_sessions_paths()
             if not search_paths:
                 logger.debug(f"No default paths for adapter '{agent_id}'.")
+                if progress_callback:
+                    progress_callback(ProgressEvent(
+                        phase="scanning",
+                        agent_id=agent_id,
+                        scan_status="complete",
+                        scan_count=0,
+                    ))
                 continue
+
+            # Signal scanning
+            if progress_callback:
+                progress_callback(ProgressEvent(
+                    phase="scanning",
+                    agent_id=agent_id,
+                    scan_status="running",
+                    scan_count=0,
+                    scan_path=str(search_paths[0]) if search_paths else "",
+                ))
+
+            agent_sessions: list[tuple[str, Path]] = []
 
             for search_path in search_paths:
                 if not search_path.exists():
@@ -42,27 +84,35 @@ class SessionScanner:
                 try:
                     if adapter.session_type == "sqlite" and search_path.is_file():
                         if adapter.is_valid_session(search_path):
-                            sessions.append((agent_id, search_path))
+                            agent_sessions.append((agent_id, search_path))
                     elif adapter.session_type == "file":
                         if search_path.is_file() and adapter.is_valid_session(search_path):
-                            sessions.append((agent_id, search_path))
+                            agent_sessions.append((agent_id, search_path))
                     elif adapter.session_type in ("dir", "project"):
                         if not search_path.is_dir():
                             continue
                         if adapter.session_type == "project":
-                            # Recursively scan for valid sessions
                             for candidate in search_path.rglob("*"):
                                 if adapter.is_valid_session(candidate):
-                                    sessions.append((agent_id, candidate))
+                                    agent_sessions.append((agent_id, candidate))
                         else:
-                            # Scan subdirectories
                             for candidate in search_path.iterdir():
                                 if candidate.is_dir() and adapter.is_valid_session(candidate):
-                                    sessions.append((agent_id, candidate))
+                                    agent_sessions.append((agent_id, candidate))
                 except PermissionError:
                     logger.warning(f"Permission denied scanning {search_path}")
                 except Exception as exc:  # noqa: BLE001
                     logger.warning(f"Error scanning {search_path}: {exc}")
+
+            sessions.extend(agent_sessions)
+
+            if progress_callback:
+                progress_callback(ProgressEvent(
+                    phase="scanning",
+                    agent_id=agent_id,
+                    scan_status="complete",
+                    scan_count=len(agent_sessions),
+                ))
 
         logger.info(
             f"Scanner found {len(sessions)} sessions across "

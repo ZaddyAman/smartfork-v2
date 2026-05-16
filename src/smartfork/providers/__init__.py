@@ -25,7 +25,6 @@ from smartfork.providers.llm import (
 from smartfork.providers.protocols import (
     EmbeddingProvider,
     LLMProvider,
-    SessionAdapter,
 )
 
 __all__ = [
@@ -47,7 +46,6 @@ __all__ = [
     # Protocols
     "LLMProvider",
     "EmbeddingProvider",
-    "SessionAdapter",
     # Helpers
     "check_ollama_available",
     "ensure_ollama_model",
@@ -57,3 +55,4 @@ __all__ = [
     # Guard
     "EmbeddingModelGuard",
 ]
+

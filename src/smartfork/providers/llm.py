@@ -33,9 +33,8 @@ class OllamaLLM:
                 "Ollama Python package is not installed. "
                 "Install it with: pip install ollama"
             )
-        # Lazy import so the class can be defined without ollama installed
         import ollama as _ollama
-        self._ollama = _ollama
+        self._client = _ollama.Client(timeout=30)
         self.model = model
 
         if not check_ollama_available(model):
@@ -58,7 +57,7 @@ class OllamaLLM:
             The response text, or empty string on error.
         """
         try:
-            response = self._ollama.generate(
+            response = self._client.generate(
                 model=self.model,
                 prompt=prompt,
                 options={
@@ -129,9 +128,7 @@ class AnthropicLLM:
     def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
         self.model = model or self.DEFAULT_MODEL
 
-        if api_key is None:
-            self._api_key = None
-        elif api_key:
+        if api_key:
             self._api_key = api_key
         else:
             secrets = _load_secrets()
@@ -139,7 +136,7 @@ class AnthropicLLM:
                 "ANTHROPIC_API_KEY", os.environ.get("ANTHROPIC_API_KEY", "")
             )
 
-        if self._api_key == "":
+        if not self._api_key:
             raise RuntimeError(
                 "ANTHROPIC_API_KEY not found. Set it in ~/.smartfork/secrets.env or "
                 "as an environment variable. Get a key at https://console.anthropic.com/"
@@ -232,15 +229,13 @@ class OpenAILLM:
     def __init__(self, model: str | None = None, api_key: str | None = None) -> None:
         self.model = model or self.DEFAULT_MODEL
 
-        if api_key is None:
-            self._api_key = None
-        elif api_key:
+        if api_key:
             self._api_key = api_key
         else:
             secrets = _load_secrets()
             self._api_key = secrets.get("OPENAI_API_KEY", os.environ.get("OPENAI_API_KEY", ""))
 
-        if self._api_key == "":
+        if not self._api_key:
             raise RuntimeError(
                 "OPENAI_API_KEY not found. Set it in ~/.smartfork/secrets.env or "
                 "as an environment variable. Get a key at https://platform.openai.com/"

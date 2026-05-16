@@ -8,6 +8,7 @@ from smartfork.models.config import (
     UIConfig,
 )
 from smartfork.models.fork import ContextReport, ForkIntent
+from smartfork.models.progress import ProgressEvent
 from smartfork.models.search import (
     QueryDecomposition,
     ResultCard,
@@ -40,6 +41,8 @@ __all__ = [
     # Fork
     "ForkIntent",
     "ContextReport",
+    # Progress
+    "ProgressEvent",
     # Config
     "AgentConfig",
     "ProviderConfig",
