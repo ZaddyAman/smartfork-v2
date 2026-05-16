@@ -262,3 +262,22 @@ Started: $(date)
   - Fallback docs should be truncated to ~1000 chars to stay within token limits
   - Judge should return JudgeOutput objects, not candidate dicts — this is a different return type than retriever/reranker
 ---
+
+## 2026-05-16 - US-007
+- Implemented SynthesisAgent that writes query-aware excerpts and formats ResultCards
+- Files changed: src/smartfork/search/__init__.py
+- Files created: src/smartfork/search/synthesis.py, tests/search/test_synthesis.py
+- SynthesisAgent is a pure formatting agent (no LLM calls) that maps JudgeOutput → ResultCard
+- Filters out Weak matches (<0.5) before creating cards
+- Badge mapping: ≥0.8 = [green]Strong match[/green], 0.5-0.8 = [yellow]Moderate match[/yellow]
+- excerpt from key_snippet, relevance_explanation from reason, match_score from relevance_score
+- Rank assigned sequentially starting at 1
+- All other ResultCard fields mapped from candidate metadata
+- 16 tests covering badge mapping, field population, rank assignment, empty judgments, missing metadata
+- ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - SynthesisAgent doesn't need an LLM — it's purely data transformation
+  - Badge colors use Rich markup strings ([green]...[green]) for CLI rendering
+  - Candidate dicts should have all metadata fields; use .get() with defaults for safety
+  - Empty list return acts as the "no relevant sessions" flag for CLI
+---

@@ -142,6 +142,7 @@ class BatchJudgeAgent:
         candidates: list[dict[str, Any]],
         query: str,
         qd: QueryDecomposition,
+        top_n: int = 5,
     ) -> list[JudgeOutput]:
         """Judge candidates and drop false positives.
 
@@ -152,10 +153,11 @@ class BatchJudgeAgent:
             candidates: List of candidate dicts from the retriever.
             query: The original user search query.
             qd: Structured query decomposition.
+            top_n: Number of top results to return after judging.
 
         Returns:
             List of JudgeOutput for candidates that match_query=True,
-            sorted by relevance_score descending, top 5.
+            sorted by relevance_score descending, top top_n.
         """
         if not candidates:
             return []
@@ -226,4 +228,4 @@ class BatchJudgeAgent:
             valid.append(judgment)
 
         valid.sort(key=lambda j: j.relevance_score, reverse=True)
-        return valid[:_TOP_N]
+        return valid[:top_n]

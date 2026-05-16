@@ -65,8 +65,12 @@ class TestParallelRetriever:
         results = retriever.retrieve(qd, top_k=5)
 
         assert mock_engine.search.call_count == 2
-        mock_engine.search.assert_any_call("variant a", top_k=10)
-        mock_engine.search.assert_any_call("variant b", top_k=10)
+        mock_engine.search.assert_any_call(
+            "variant a", top_k=10, project_filter=None, quality_filter=None
+        )
+        mock_engine.search.assert_any_call(
+            "variant b", top_k=10, project_filter=None, quality_filter=None
+        )
         assert len(results) == 2
         assert {r["session_id"] for r in results} == {"s1", "s2"}
 
@@ -93,7 +97,12 @@ class TestParallelRetriever:
         mock_engine = MagicMock(spec=DeterministicSearchEngine)
         mock_engine.metadata_store = None
 
-        def _search(query: str, top_k: int = 10) -> list[ResultCard]:
+        def _search(
+            query: str,
+            top_k: int = 10,
+            project_filter: str | None = None,
+            quality_filter: str | None = None,
+        ) -> list[ResultCard]:
             if query == "bad":
                 raise RuntimeError("boom")
             return [_make_card("s1", "title1", 0.8)]
@@ -236,3 +245,30 @@ class TestParallelRetriever:
         assert len(results) == 1
         assert results[0]["match_score"] == 0.95
         assert results[0]["title"] == "high title"
+
+    def test_passes_project_and_quality_filters(self) -> None:
+        mock_engine = MagicMock(spec=DeterministicSearchEngine)
+        mock_engine.metadata_store = None
+        mock_engine.search.return_value = [
+            _make_card("s1", "title1", 0.9, "proj1")
+        ]
+
+        retriever = ParallelRetriever(deterministic_engine=mock_engine)
+        qd = QueryDecomposition(
+            core_goal="test",
+            search_variants=["variant a"],
+        )
+        results = retriever.retrieve(
+            qd,
+            top_k=5,
+            project_filter="alpha",
+            quality_filter="solution_found",
+        )
+
+        assert len(results) == 1
+        mock_engine.search.assert_called_once_with(
+            "variant a",
+            top_k=10,
+            project_filter="alpha",
+            quality_filter="solution_found",
+        )

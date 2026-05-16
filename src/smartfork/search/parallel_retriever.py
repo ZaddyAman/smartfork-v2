@@ -24,12 +24,20 @@ class ParallelRetriever:
     def __init__(self, deterministic_engine: DeterministicSearchEngine) -> None:
         self.deterministic_engine = deterministic_engine
 
-    def retrieve(self, qd: QueryDecomposition, top_k: int) -> list[dict[str, Any]]:
+    def retrieve(
+        self,
+        qd: QueryDecomposition,
+        top_k: int,
+        project_filter: str | None = None,
+        quality_filter: str | None = None,
+    ) -> list[dict[str, Any]]:
         """Execute deterministic search across all variants in parallel.
 
         Args:
             qd: Query decomposition with search variants.
             top_k: Final number of top results desired.
+            project_filter: Optional project name filter.
+            quality_filter: Optional quality tag filter.
 
         Returns:
             Flat list of candidate dicts with metadata for reranking.
@@ -42,7 +50,12 @@ class ParallelRetriever:
         def _search_variant(variant: str) -> list[dict[str, Any]]:
             candidates: list[dict[str, Any]] = []
             try:
-                cards = self.deterministic_engine.search(variant, top_k=top_k * 2)
+                cards = self.deterministic_engine.search(
+                    variant,
+                    top_k=top_k * 2,
+                    project_filter=project_filter,
+                    quality_filter=quality_filter,
+                )
             except Exception as e:
                 logger.warning(f"Search variant '{variant}' failed: {e}")
                 return candidates
