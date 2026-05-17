@@ -28,6 +28,8 @@ from smartfork.providers.protocols import (
     LLMProvider,
 )
 
+OPENCODE_ECOSYSTEM_PROVIDERS = ("opencode", "go", "zen")
+
 __all__ = [
     # LLM Factory
     "get_llm",
@@ -36,6 +38,8 @@ __all__ = [
     "AnthropicLLM",
     "OpenAILLM",
     "OpenAICompatibleLLM",
+    # OpenCode ecosystem
+    "OPENCODE_ECOSYSTEM_PROVIDERS",
     # Embedding Factory
     "get_embedder",
     # Embedding implementations

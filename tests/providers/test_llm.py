@@ -8,6 +8,7 @@ import pytest
 from smartfork.providers.llm import (
     AnthropicLLM,
     OllamaLLM,
+    OpenAICompatibleLLM,
     OpenAILLM,
     _load_secrets,
     get_llm,
@@ -72,7 +73,6 @@ class TestOllamaLLM:
         with patch("smartfork.providers.llm.OLLAMA_AVAILABLE", True), \
              patch("smartfork.providers.llm.check_ollama_available", return_value=True):
             provider = OllamaLLM.__new__(OllamaLLM)
-            provider._ollama = MagicMock()
             provider.model = "qwen2.5-coder:7b"
             with patch("smartfork.providers.llm.instructor", None, create=True):
                 # This will raise because instructor isn't imported in complete_structured
@@ -82,7 +82,6 @@ class TestOllamaLLM:
         with patch("smartfork.providers.llm.OLLAMA_AVAILABLE", True), \
              patch("smartfork.providers.llm.check_ollama_available", return_value=True):
             provider = OllamaLLM.__new__(OllamaLLM)
-            provider._ollama = MagicMock()
             provider.model = "custom-model:latest"
             assert provider.model == "custom-model:latest"
 
@@ -179,6 +178,67 @@ class TestOpenAILLM:
                 provider.complete("Hello")
 
 
+class TestOpenAICompatibleLLM:
+    def test_init_raises_without_api_key(self) -> None:
+        with patch("smartfork.providers.llm._load_secrets", return_value={}), \
+             patch("os.environ", {}), \
+             pytest.raises(
+                 RuntimeError,
+                 match="OPENCODE_API_KEY not found for provider 'opencode'",
+             ):
+            OpenAICompatibleLLM(
+                model="qwen3.5-plus",
+                base_url="https://opencode.ai/zen/go/v1",
+                provider_name="opencode",
+                api_key_env="OPENCODE_API_KEY",
+            )
+
+    def test_init_with_explicit_api_key(self) -> None:
+        provider = OpenAICompatibleLLM(
+            model="qwen3.5-plus",
+            api_key="test-key",
+            base_url="https://opencode.ai/zen/go/v1",
+            provider_name="opencode",
+            api_key_env="OPENCODE_API_KEY",
+        )
+        assert provider._api_key == "test-key"
+        assert provider.model == "qwen3.5-plus"
+        assert provider._base_url == "https://opencode.ai/zen/go/v1"
+
+    def test_complete_returns_text(self) -> None:
+        provider = OpenAICompatibleLLM.__new__(OpenAICompatibleLLM)
+        provider.model = "qwen3.5-plus"
+        provider._api_key = "test-key"
+        provider._base_url = "https://opencode.ai/zen/go/v1"
+        provider._provider_name = "opencode"
+
+        mock_choice = MagicMock()
+        mock_choice.message.content = "Hello from OpenCode"
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+
+        with patch("openai.OpenAI") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.return_value = mock_response
+            mock_client_class.return_value = mock_client
+            result = provider.complete("Hello")
+            assert result == "Hello from OpenCode"
+
+    def test_complete_raises_on_error(self) -> None:
+        provider = OpenAICompatibleLLM.__new__(OpenAICompatibleLLM)
+        provider.model = "qwen3.5-plus"
+        provider._api_key = "test-key"
+        provider._base_url = "https://opencode.ai/zen/go/v1"
+        provider._provider_name = "opencode"
+
+        with patch("openai.OpenAI") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client.chat.completions.create.side_effect = Exception("API error")
+            mock_client_class.return_value = mock_client
+            with pytest.raises(RuntimeError, match="opencode completion failed"):
+                provider.complete("Hello")
+
+
 class TestGetLLM:
     def test_returns_ollama_by_default(self) -> None:
         with patch("smartfork.providers.llm.OLLAMA_AVAILABLE", True), \
@@ -206,3 +266,55 @@ class TestGetLLM:
         with patch.dict("os.environ", {"OPENAI_API_KEY": "test-key"}):
             llm = get_llm("OpenAI", model="gpt-4")
         assert isinstance(llm, OpenAILLM)
+
+    def test_returns_opencode(self) -> None:
+        with patch.dict("os.environ", {"OPENCODE_API_KEY": "test-key"}):
+            llm = get_llm("opencode")
+        assert isinstance(llm, OpenAICompatibleLLM)
+        assert llm.model == "qwen3.5-plus"
+        assert llm._base_url == "https://opencode.ai/zen/go/v1"
+        assert llm._provider_name == "opencode"
+
+    def test_returns_go(self) -> None:
+        with patch.dict("os.environ", {"OPENCODE_API_KEY": "test-key"}):
+            llm = get_llm("go")
+        assert isinstance(llm, OpenAICompatibleLLM)
+        assert llm.model == "qwen3.5-plus"
+        assert llm._base_url == "https://opencode.ai/zen/go/v1"
+        assert llm._provider_name == "go"
+
+    def test_returns_zen(self) -> None:
+        with patch.dict("os.environ", {"OPENCODE_API_KEY": "test-key"}):
+            llm = get_llm("zen")
+        assert isinstance(llm, OpenAICompatibleLLM)
+        assert llm.model == "qwen3.5-plus"
+        assert llm._base_url == "https://opencode.ai/zen/v1"
+        assert llm._provider_name == "zen"
+
+    def test_opencode_go_distinct_base_urls(self) -> None:
+        with patch.dict("os.environ", {"OPENCODE_API_KEY": "test-key"}):
+            go_llm = get_llm("go")
+            zen_llm = get_llm("zen")
+        assert isinstance(go_llm, OpenAICompatibleLLM)
+        assert isinstance(zen_llm, OpenAICompatibleLLM)
+        assert go_llm._base_url == "https://opencode.ai/zen/go/v1"
+        assert zen_llm._base_url == "https://opencode.ai/zen/v1"
+        assert go_llm._base_url != zen_llm._base_url
+
+    def test_opencode_case_insensitive(self) -> None:
+        with patch.dict("os.environ", {"OPENCODE_API_KEY": "test-key"}):
+            llm = get_llm("OpEnCoDe")
+        assert isinstance(llm, OpenAICompatibleLLM)
+        assert llm._provider_name == "opencode"
+
+    def test_go_case_insensitive(self) -> None:
+        with patch.dict("os.environ", {"OPENCODE_API_KEY": "test-key"}):
+            llm = get_llm("GO")
+        assert isinstance(llm, OpenAICompatibleLLM)
+        assert llm._provider_name == "go"
+
+    def test_zen_case_insensitive(self) -> None:
+        with patch.dict("os.environ", {"OPENCODE_API_KEY": "test-key"}):
+            llm = get_llm("Zen")
+        assert isinstance(llm, OpenAICompatibleLLM)
+        assert llm._provider_name == "zen"

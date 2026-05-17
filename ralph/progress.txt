@@ -337,3 +337,18 @@ Started: $(date)
   - 12 test cases is a good baseline; can expand to 50+ for regression benchmarking
   - All synthetic tests from US-003 through US-009 already satisfied AC 6-10; only AC 1-5 needed new work
 ---
+
+## 2026-05-17 - US-011
+- Added OpenAICompatibleLLM class to src/smartfork/providers/llm.py
+- Updated src/smartfork/providers/__init__.py to export OpenAICompatibleLLM
+- Created tests/providers/test_openai_compatible.py with 11 unit tests
+- Fixed pre-existing broken Ollama tests in tests/providers/test_llm.py (provider._ollama → provider._client)
+- OpenAICompatibleLLM supports provider_name parameter for dynamic env var derivation (uppercase, hyphens→underscores)
+- complete_structured uses instructor.Mode.JSON for maximum compatibility with non-OpenAI endpoints
+- 93 provider tests passing, ruff clean, mypy clean on new code
+- **Learnings for future iterations:**
+  - provider_name parameter is essential for US-012/US-013 so error messages mention the correct provider name
+  - instructor.Mode.JSON is critical for providers that lack native tool-calling support
+  - Env var derivation: f"{provider_name.upper().replace('-', '_')}_API_KEY" keeps shell-friendly names
+  - Pre-existing ruff/mypy failures in unrelated modules (theme.py, mcp/server.py, adapters/opencode.py) are not caused by this change
+---

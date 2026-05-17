@@ -343,12 +343,13 @@ class OpenAICompatibleLLM:
         api_key: str | None = None,
         base_url: str | None = None,
         provider_name: str = "openai-compatible",
+        api_key_env: str | None = None,
     ) -> None:
         self.model = model
         self._base_url = base_url
         self._provider_name = provider_name
 
-        env_var_name = f"{provider_name.upper().replace('-', '_')}_API_KEY"
+        env_var_name = api_key_env or f"{provider_name.upper().replace('-', '_')}_API_KEY"
 
         if api_key:
             self._api_key = api_key
@@ -358,8 +359,8 @@ class OpenAICompatibleLLM:
 
         if not self._api_key:
             raise RuntimeError(
-                f"{env_var_name} not found. Set it in ~/.smartfork/secrets.env or "
-                "as an environment variable."
+                f"{env_var_name} not found for provider '{provider_name}'. "
+                "Set it in ~/.smartfork/secrets.env or as an environment variable."
             )
 
     def complete(
@@ -451,7 +452,7 @@ def get_llm(provider: str = "ollama", model: str | None = None) -> LLMProvider:
     """Factory function returning the correct LLM provider.
 
     Args:
-        provider: One of "ollama", "anthropic", or "openai".
+        provider: One of "ollama", "anthropic", "openai", "opencode", "go", or "zen".
         model: Override the default model name.
 
     Returns:
@@ -471,7 +472,31 @@ def get_llm(provider: str = "ollama", model: str | None = None) -> LLMProvider:
     if provider == "openai":
         return OpenAILLM(model=model)
 
+    if provider == "opencode":
+        return OpenAICompatibleLLM(
+            model=model or "qwen3.5-plus",
+            base_url="https://opencode.ai/zen/go/v1",
+            provider_name="opencode",
+            api_key_env="OPENCODE_API_KEY",
+        )
+
+    if provider == "go":
+        return OpenAICompatibleLLM(
+            model=model or "qwen3.5-plus",
+            base_url="https://opencode.ai/zen/go/v1",
+            provider_name="go",
+            api_key_env="OPENCODE_API_KEY",
+        )
+
+    if provider == "zen":
+        return OpenAICompatibleLLM(
+            model=model or "qwen3.5-plus",
+            base_url="https://opencode.ai/zen/v1",
+            provider_name="zen",
+            api_key_env="OPENCODE_API_KEY",
+        )
+
     raise ValueError(
         f"Unknown LLM provider: '{provider}'. "
-        "Valid options: ollama, anthropic, openai"
+        "Valid options: ollama, anthropic, openai, opencode, go, zen"
     )

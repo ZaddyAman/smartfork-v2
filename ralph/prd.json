@@ -251,7 +251,7 @@
         "ruff clean on the new code"
       ],
       "priority": 11,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-012",
