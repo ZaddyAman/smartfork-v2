@@ -318,3 +318,22 @@ Started: $(date)
   - Reuse LLM instance when strategic_llm == smart_llm to avoid double instantiation
   - Card display refactoring should handle both orchestrator badges (Rich markup) and deterministic badges
 ---
+
+## 2026-05-16 - US-010
+- Built manual and synthetic test suite for the orchestrator pipeline
+- Files changed: tests/search/test_decomposer.py
+- Files created: tests/search/test_manual_evaluation.py
+- Added test_search_variants_count_in_range to test_decomposer.py (asserts 3-5 variants)
+- Created 12 manual test cases covering diverse tech domains
+- Each case designed with unique non-overlapping keywords so deterministic search fails but orchestrator succeeds
+- TestDeterministicFails: 12 parametrized tests proving deterministic search alone misses expected sessions
+- TestOrchestratorFindsSession: 12 parametrized tests proving orchestrator finds expected sessions at rank 1
+- Manual tests use real DeterministicSearchEngine + ParallelRetriever with mocked LLM stages (no real LLM calls)
+- 138 total search tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Manual evaluation tests should use unique keyword isolation per session to make deterministic behavior predictable
+  - Mocked decomposer variants should contain exact session keywords to simulate LLM query expansion
+  - Real engine + mocked LLM stages is the sweet spot for integration testing without flakiness
+  - 12 test cases is a good baseline; can expand to 50+ for regression benchmarking
+  - All synthetic tests from US-003 through US-009 already satisfied AC 6-10; only AC 1-5 needed new work
+---

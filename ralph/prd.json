@@ -12,7 +12,10 @@
     "28-synthesis-agent",
     "29-search-orchestrator",
     "30-cli-integration",
-    "31-test-suite"
+    "31-test-suite",
+    "32-openai-compatible-provider-framework",
+    "33-opencode-providers",
+    "34-third-party-providers"
   ],
   "userStories": [
     {
@@ -225,6 +228,78 @@
         "No tests depend on real LLM calls (all mocked)"
       ],
       "priority": 10,
+      "passes": true
+    },
+    {
+      "id": "US-011",
+      "title": "Add OpenAI-compatible provider framework",
+      "description": "Create a reusable OpenAICompatibleLLM class that uses the openai Python SDK (already a dependency via instructor) to call any OpenAI-compatible API endpoint. This class must implement the LLMProvider protocol (complete() and complete_structured() methods). It will be the foundation for adding 13 new providers without writing per-provider boilerplate. The class reads API keys from ~/.smartfork/secrets.env or environment variables, supports custom base_url override, and produces clear error messages when credentials are missing.",
+      "spec": "32-openai-compatible-provider-framework.md",
+      "acceptanceCriteria": [
+        "OpenAICompatibleLLM class exists in src/smartfork/providers/llm.py",
+        "__init__(self, model: str, api_key: str | None = None, base_url: str | None = None) reads api_key from secrets.env OR env var if not provided directly",
+        "If api_key is missing after all sources, raise RuntimeError with clear message: '<PROVIDER_NAME>_API_KEY not found. Set it in ~/.smartfork/secrets.env or as an environment variable.'",
+        "complete(prompt, max_tokens=500, temperature=0.1) -> str uses openai.OpenAI client with the configured base_url and api_key",
+        "complete_structured(prompt, output_schema, max_tokens=500, temperature=0.1) -> Any uses instructor.from_openai() to get Pydantic-validated structured output",
+        "Both methods handle exceptions gracefully: log error with loguru, raise RuntimeError with actionable message including the provider name and underlying error",
+        "No new dependencies added: relies on existing openai and instructor packages",
+        "Does NOT import provider-specific SDKs (no groq, no mistralai, no together, etc.)",
+        "Unit tests in tests/providers/test_openai_compatible.py mock the openai.OpenAI client and verify complete() returns response text",
+        "Unit tests mock instructor.from_openai() and verify complete_structured() returns a Pydantic model instance",
+        "Unit tests verify RuntimeError is raised when api_key is None and no env var is set",
+        "mypy clean on the new code",
+        "ruff clean on the new code"
+      ],
+      "priority": 11,
+      "passes": false
+    },
+    {
+      "id": "US-012",
+      "title": "Add OpenCode ecosystem providers (opencode, go, zen)",
+      "description": "Extend get_llm() factory to support three OpenCode-related providers. All three use the same OPENCODE_API_KEY and the OpenAICompatibleLLM class from US-011, but with different default base URLs. The 'go' provider is the subscription plan endpoint, 'zen' is the pay-as-you-go gateway, and 'opencode' is a user-friendly alias for go (since that's what most users expect when they say 'opencode').",
+      "spec": "33-opencode-providers.md",
+      "acceptanceCriteria": [
+        "Provider names accepted by get_llm(): 'opencode', 'go', 'zen' (case-insensitive)",
+        "opencode provider: base_url='https://opencode.ai/zen/go/v1', api_key_env='OPENCODE_API_KEY', default_model='qwen3.5-plus'",
+        "go provider: base_url='https://opencode.ai/zen/go/v1', api_key_env='OPENCODE_API_KEY', default_model='qwen3.5-plus'",
+        "zen provider: base_url='https://opencode.ai/zen/v1', api_key_env='OPENCODE_API_KEY', default_model='qwen3.5-plus'",
+        "All three call OpenAICompatibleLLM with their respective base_url and api_key resolved from OPENCODE_API_KEY",
+        "RuntimeError message mentions the provider name the user actually typed (e.g. 'go' or 'zen') even though they share the same env var",
+        "SmartForkConfig._backfill_tiered_llms validator recognizes 'opencode', 'go', and 'zen' as valid provider names (no-op for these, just don't reject them)",
+        "Export the three provider names or a combined helper from src/smartfork/providers/__init__.py if needed",
+        "Unit tests verify get_llm('opencode') returns an OpenAICompatibleLLM with correct base_url",
+        "Unit tests verify get_llm('go') and get_llm('zen') have distinct base_urls",
+        "mypy clean",
+        "ruff clean"
+      ],
+      "priority": 12,
+      "passes": false
+    },
+    {
+      "id": "US-013",
+      "title": "Add 10 popular third-party OpenAI-compatible providers",
+      "description": "Extend get_llm() factory to support 10 additional popular LLM API providers. All use OpenAICompatibleLLM from US-011 with provider-specific defaults for base_url, env var, and model. This gives users maximum flexibility: free tiers (OpenRouter, Groq, Gemini), cheap pay-as-you-go (Together, DeepSeek), and premium options (xAI, Perplexity).",
+      "spec": "34-third-party-providers.md",
+      "acceptanceCriteria": [
+        "Provider names accepted by get_llm() (case-insensitive): 'openrouter', 'groq', 'gemini', 'together', 'mistral', 'deepseek', 'fireworks', 'cohere', 'xai', 'perplexity'",
+        "openrouter: base_url='https://openrouter.ai/api/v1', env='OPENROUTER_API_KEY', default='meta-llama/llama-3.3-70b-instruct:free'",
+        "groq: base_url='https://api.groq.com/openai/v1', env='GROQ_API_KEY', default='llama-3.3-70b-versatile'",
+        "gemini: base_url='https://generativelanguage.googleapis.com/v1beta/openai/', env='GOOGLE_API_KEY', default='gemini-1.5-flash-latest'",
+        "together: base_url='https://api.together.ai/v1', env='TOGETHER_API_KEY', default='meta-llama/Llama-3.3-70B-Instruct-Turbo'",
+        "mistral: base_url='https://api.mistral.ai/v1', env='MISTRAL_API_KEY', default='mistral-large-latest'",
+        "deepseek: base_url='https://api.deepseek.com', env='DEEPSEEK_API_KEY', default='deepseek-chat'",
+        "fireworks: base_url='https://api.fireworks.ai/inference/v1', env='FIREWORKS_API_KEY', default='accounts/fireworks/models/llama-v3p1-8b-instruct'",
+        "cohere: base_url='https://api.cohere.com/v1', env='COHERE_API_KEY', default='command-r'",
+        "xai: base_url='https://api.x.ai/v1', env='XAI_API_KEY', default='grok-2-latest'",
+        "perplexity: base_url='https://api.perplexity.ai', env='PERPLEXITY_API_KEY', default='sonar'",
+        "SmartForkConfig._backfill_tiered_llms validator recognizes all 10 new names as valid provider names",
+        "README or AGENTS.md updated with a provider table showing: provider name, env var, example model, notes (free tier?)",
+        "Unit tests verify each provider name maps to correct base_url and default model via get_llm()",
+        "Unit tests use monkeypatch to set env vars and verify get_llm() instantiates OpenAICompatibleLLM correctly",
+        "mypy clean on all modified files",
+        "ruff clean on all modified files"
+      ],
+      "priority": 13,
       "passes": false
     }
   ]

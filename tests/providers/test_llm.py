@@ -52,7 +52,7 @@ class TestOllamaLLM:
             mock_ollama_mod.generate.return_value = {"response": "Hello, world!"}
             with patch.dict(llm_mod.__dict__, {"ollama": mock_ollama_mod}):
                 provider = OllamaLLM.__new__(OllamaLLM)
-                provider._ollama = mock_ollama_mod
+                provider._client = mock_ollama_mod
                 provider.model = "qwen2.5-coder:7b"
                 result = provider.complete("Hello")
                 assert result == "Hello, world!"
@@ -63,7 +63,7 @@ class TestOllamaLLM:
             provider = OllamaLLM.__new__(OllamaLLM)
             mock_ollama_mod = MagicMock()
             mock_ollama_mod.generate.side_effect = Exception("Ollama error")
-            provider._ollama = mock_ollama_mod
+            provider._client = mock_ollama_mod
             provider.model = "qwen2.5-coder:7b"
             with pytest.raises(RuntimeError, match="Ollama completion failed"):
                 provider.complete("Hello")

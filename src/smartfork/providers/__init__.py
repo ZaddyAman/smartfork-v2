@@ -19,6 +19,7 @@ from smartfork.providers.helpers import (
 from smartfork.providers.llm import (
     AnthropicLLM,
     OllamaLLM,
+    OpenAICompatibleLLM,
     OpenAILLM,
     get_llm,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "OllamaLLM",
     "AnthropicLLM",
     "OpenAILLM",
+    "OpenAICompatibleLLM",
     # Embedding Factory
     "get_embedder",
     # Embedding implementations

@@ -334,6 +334,119 @@ class OpenAILLM:
             ) from e
 
 
+class OpenAICompatibleLLM:
+    """LLM provider using an OpenAI-compatible API endpoint."""
+
+    def __init__(
+        self,
+        model: str,
+        api_key: str | None = None,
+        base_url: str | None = None,
+        provider_name: str = "openai-compatible",
+    ) -> None:
+        self.model = model
+        self._base_url = base_url
+        self._provider_name = provider_name
+
+        env_var_name = f"{provider_name.upper().replace('-', '_')}_API_KEY"
+
+        if api_key:
+            self._api_key = api_key
+        else:
+            secrets = _load_secrets()
+            self._api_key = secrets.get(env_var_name, os.environ.get(env_var_name, ""))
+
+        if not self._api_key:
+            raise RuntimeError(
+                f"{env_var_name} not found. Set it in ~/.smartfork/secrets.env or "
+                "as an environment variable."
+            )
+
+    def complete(
+        self, prompt: str, max_tokens: int = 500, temperature: float = 0.1
+    ) -> str:
+        """Send a completion request to an OpenAI-compatible API.
+
+        Args:
+            prompt: The prompt to send.
+            max_tokens: Maximum tokens in the response.
+            temperature: Sampling temperature.
+
+        Returns:
+            The response text, or empty string on error.
+        """
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=self._api_key, base_url=self._base_url)
+            response = client.chat.completions.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            choice = response.choices[0]
+            return choice.message.content or ""
+        except ImportError as err:
+            logger.error("openai package is not installed")
+            raise RuntimeError(
+                "The 'openai' package is required for OpenAI-compatible LLM. "
+                "Install it with: pip install openai"
+            ) from err
+        except Exception as e:
+            logger.error(f"{self._provider_name} completion failed: {e}")
+            raise RuntimeError(
+                f"{self._provider_name} completion failed. "
+                f"Check your API key and network.\nError: {e}"
+            ) from e
+
+    def complete_structured(
+        self,
+        prompt: str,
+        output_schema: type,
+        max_tokens: int = 500,
+        temperature: float = 0.1,
+    ) -> Any:
+        """Get structured output from an OpenAI-compatible API using instructor.
+
+        Args:
+            prompt: The prompt to send.
+            output_schema: A Pydantic model class for structured output.
+            max_tokens: Maximum tokens in the response.
+            temperature: Sampling temperature.
+
+        Returns:
+            An instance of output_schema.
+        """
+        try:
+            import instructor
+            from openai import OpenAI
+
+            client = instructor.from_openai(
+                OpenAI(api_key=self._api_key, base_url=self._base_url),
+                mode=instructor.Mode.JSON,
+            )
+            response: Any = client.chat.completions.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                response_model=output_schema,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            return response
+        except ImportError as err:
+            logger.error(f"instructor package not installed: {err}")
+            raise RuntimeError(
+                "The 'instructor' package is required for structured output. "
+                "Install it with: pip install instructor"
+            ) from err
+        except Exception as e:
+            logger.error(f"{self._provider_name} structured completion failed: {e}")
+            raise RuntimeError(
+                f"{self._provider_name} structured completion failed: {e}"
+            ) from e
+
+
 def get_llm(provider: str = "ollama", model: str | None = None) -> LLMProvider:
     """Factory function returning the correct LLM provider.
 
