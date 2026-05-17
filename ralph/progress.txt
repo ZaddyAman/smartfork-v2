@@ -352,3 +352,18 @@ Started: $(date)
   - Env var derivation: f"{provider_name.upper().replace('-', '_')}_API_KEY" keeps shell-friendly names
   - Pre-existing ruff/mypy failures in unrelated modules (theme.py, mcp/server.py, adapters/opencode.py) are not caused by this change
 ---
+
+## 2026-05-17 - US-012
+- Added OpenCode ecosystem providers (opencode, go, zen) to get_llm() factory
+- Modified OpenAICompatibleLLM to accept api_key_env parameter for shared API key scenarios
+- Updated RuntimeError message to mention the actual provider name the user typed
+- Exported OPENCODE_ECOSYSTEM_PROVIDERS constant from providers/__init__.py
+- Added 8 new tests in tests/providers/test_llm.py covering case-insensitivity, distinct base_urls, and error messages
+- SmartForkConfig._backfill_tiered_llms already passes through any provider string without validation, so no config changes needed
+- 34 tests passing in test_llm.py, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - api_key_env override is critical when multiple provider aliases share the same credential (OPENCODE_API_KEY)
+  - provider_name in error messages gives users actionable feedback even with shared env vars
+  - go and opencode share the same base_url (https://opencode.ai/zen/go/v1) by design; zen is distinct (https://opencode.ai/zen/v1)
+  - No config validator changes needed because _backfill_tiered_llms is purely a backfill pass
+---

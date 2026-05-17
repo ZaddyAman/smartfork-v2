@@ -318,3 +318,99 @@ class TestGetLLM:
             llm = get_llm("Zen")
         assert isinstance(llm, OpenAICompatibleLLM)
         assert llm._provider_name == "zen"
+
+
+class TestThirdPartyProviders:
+    """Tests for third-party OpenAI-compatible providers."""
+
+    @pytest.mark.parametrize(
+        "provider,expected_url,expected_model,env_var",
+        [
+            (
+                "openrouter",
+                "https://openrouter.ai/api/v1",
+                "meta-llama/llama-3.3-70b-instruct:free",
+                "OPENROUTER_API_KEY",
+            ),
+            (
+                "groq",
+                "https://api.groq.com/openai/v1",
+                "llama-3.3-70b-versatile",
+                "GROQ_API_KEY",
+            ),
+            (
+                "gemini",
+                "https://generativelanguage.googleapis.com/v1beta/openai/",
+                "gemini-1.5-flash-latest",
+                "GOOGLE_API_KEY",
+            ),
+            (
+                "together",
+                "https://api.together.ai/v1",
+                "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+                "TOGETHER_API_KEY",
+            ),
+            (
+                "mistral",
+                "https://api.mistral.ai/v1",
+                "mistral-large-latest",
+                "MISTRAL_API_KEY",
+            ),
+            (
+                "deepseek",
+                "https://api.deepseek.com",
+                "deepseek-chat",
+                "DEEPSEEK_API_KEY",
+            ),
+            (
+                "fireworks",
+                "https://api.fireworks.ai/inference/v1",
+                "accounts/fireworks/models/llama-v3p1-8b-instruct",
+                "FIREWORKS_API_KEY",
+            ),
+            (
+                "cohere",
+                "https://api.cohere.com/v1",
+                "command-r",
+                "COHERE_API_KEY",
+            ),
+            (
+                "xai",
+                "https://api.x.ai/v1",
+                "grok-2-latest",
+                "XAI_API_KEY",
+            ),
+            (
+                "perplexity",
+                "https://api.perplexity.ai",
+                "sonar",
+                "PERPLEXITY_API_KEY",
+            ),
+        ],
+    )
+    def test_returns_correct_provider(
+        self,
+        provider: str,
+        expected_url: str,
+        expected_model: str,
+        env_var: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv(env_var, "test-key")
+        llm = get_llm(provider)
+        assert isinstance(llm, OpenAICompatibleLLM)
+        assert llm.model == expected_model
+        assert llm._base_url == expected_url
+        assert llm._provider_name == provider
+
+    def test_case_insensitive(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+        llm = get_llm("OpenRouter")
+        assert isinstance(llm, OpenAICompatibleLLM)
+        assert llm._provider_name == "openrouter"
+
+    def test_custom_model_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("GROQ_API_KEY", "test-key")
+        llm = get_llm("groq", model="custom-model")
+        assert isinstance(llm, OpenAICompatibleLLM)
+        assert llm.model == "custom-model"

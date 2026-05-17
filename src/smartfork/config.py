@@ -17,6 +17,25 @@ CONFIG_DIR = Path.home() / ".smartfork"
 CONFIG_FILE = CONFIG_DIR / "config.toml"
 SECRETS_FILE = CONFIG_DIR / "secrets.env"
 
+VALID_LLM_PROVIDERS: set[str] = {
+    "ollama",
+    "anthropic",
+    "openai",
+    "opencode",
+    "go",
+    "zen",
+    "openrouter",
+    "groq",
+    "gemini",
+    "together",
+    "mistral",
+    "deepseek",
+    "fireworks",
+    "cohere",
+    "xai",
+    "perplexity",
+}
+
 
 class SmartForkConfig(BaseSettings):
     """SmartFork v2 configuration backed by TOML with env-var override."""
@@ -106,6 +125,22 @@ class SmartForkConfig(BaseSettings):
 
     @model_validator(mode="after")
     def _backfill_tiered_llms(self) -> "SmartForkConfig":
+        provider_fields = (
+            "llm_provider",
+            "strategic_llm_provider",
+            "smart_llm_provider",
+        )
+        for field_name in provider_fields:
+            value = getattr(self, field_name)
+            if value is not None:
+                lowered = value.lower()
+                if lowered not in VALID_LLM_PROVIDERS:
+                    raise ValueError(
+                        f"Unknown LLM provider '{value}' in {field_name}. "
+                        f"Valid: {', '.join(sorted(VALID_LLM_PROVIDERS))}"
+                    )
+                setattr(self, field_name, lowered)
+
         if self.strategic_llm_provider is None:
             self.strategic_llm_provider = self.llm_provider
         if self.strategic_llm_model is None:

@@ -292,6 +292,48 @@ class TestLegacyProperty:
         assert isinstance(result, Path)
 
 
+class TestProviderValidation:
+    """Tests for LLM provider name validation."""
+
+    @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
+    def test_valid_providers_accepted(self, mock_home: Path) -> None:
+        from smartfork.config import VALID_LLM_PROVIDERS, SmartForkConfig
+        for provider in VALID_LLM_PROVIDERS:
+            cfg = SmartForkConfig(llm_provider=provider)
+            assert cfg.llm_provider == provider.lower()
+
+    @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
+    def test_invalid_provider_raises_value_error(self, mock_home: Path) -> None:
+        from smartfork.config import SmartForkConfig
+        with pytest.raises(ValueError, match="Unknown LLM provider"):
+            SmartForkConfig(llm_provider="invalid_provider")
+
+    @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
+    def test_case_insensitive_provider_names(self, mock_home: Path) -> None:
+        from smartfork.config import SmartForkConfig
+        cfg = SmartForkConfig(llm_provider="OpenAI")
+        assert cfg.llm_provider == "openai"
+
+    @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
+    def test_new_providers_recognized_in_backfill(self, mock_home: Path) -> None:
+        from smartfork.config import SmartForkConfig
+        cfg = SmartForkConfig(llm_provider="groq")
+        assert cfg.strategic_llm_provider == "groq"
+        assert cfg.smart_llm_provider == "groq"
+
+    @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
+    def test_invalid_strategic_provider_raises(self, mock_home: Path) -> None:
+        from smartfork.config import SmartForkConfig
+        with pytest.raises(ValueError, match="Unknown LLM provider"):
+            SmartForkConfig(strategic_llm_provider="bad_provider")
+
+    @patch("pathlib.Path.home", return_value=Path("/tmp/fake_home"))
+    def test_invalid_smart_provider_raises(self, mock_home: Path) -> None:
+        from smartfork.config import SmartForkConfig
+        with pytest.raises(ValueError, match="Unknown LLM provider"):
+            SmartForkConfig(smart_llm_provider="bad_provider")
+
+
 class TestTieredLLMConfig:
     """Tests for tiered LLM configuration (strategic_llm + smart_llm)."""
 

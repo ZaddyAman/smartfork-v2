@@ -448,11 +448,65 @@ class OpenAICompatibleLLM:
             ) from e
 
 
+_THIRD_PARTY_PROVIDERS: dict[str, dict[str, str]] = {
+    "openrouter": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "default_model": "meta-llama/llama-3.3-70b-instruct:free",
+    },
+    "groq": {
+        "base_url": "https://api.groq.com/openai/v1",
+        "api_key_env": "GROQ_API_KEY",
+        "default_model": "llama-3.3-70b-versatile",
+    },
+    "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "api_key_env": "GOOGLE_API_KEY",
+        "default_model": "gemini-1.5-flash-latest",
+    },
+    "together": {
+        "base_url": "https://api.together.ai/v1",
+        "api_key_env": "TOGETHER_API_KEY",
+        "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    },
+    "mistral": {
+        "base_url": "https://api.mistral.ai/v1",
+        "api_key_env": "MISTRAL_API_KEY",
+        "default_model": "mistral-large-latest",
+    },
+    "deepseek": {
+        "base_url": "https://api.deepseek.com",
+        "api_key_env": "DEEPSEEK_API_KEY",
+        "default_model": "deepseek-chat",
+    },
+    "fireworks": {
+        "base_url": "https://api.fireworks.ai/inference/v1",
+        "api_key_env": "FIREWORKS_API_KEY",
+        "default_model": "accounts/fireworks/models/llama-v3p1-8b-instruct",
+    },
+    "cohere": {
+        "base_url": "https://api.cohere.com/v1",
+        "api_key_env": "COHERE_API_KEY",
+        "default_model": "command-r",
+    },
+    "xai": {
+        "base_url": "https://api.x.ai/v1",
+        "api_key_env": "XAI_API_KEY",
+        "default_model": "grok-2-latest",
+    },
+    "perplexity": {
+        "base_url": "https://api.perplexity.ai",
+        "api_key_env": "PERPLEXITY_API_KEY",
+        "default_model": "sonar",
+    },
+}
+
+
 def get_llm(provider: str = "ollama", model: str | None = None) -> LLMProvider:
     """Factory function returning the correct LLM provider.
 
     Args:
-        provider: One of "ollama", "anthropic", "openai", "opencode", "go", or "zen".
+        provider: One of the supported provider names (case-insensitive).
         model: Override the default model name.
 
     Returns:
@@ -462,6 +516,15 @@ def get_llm(provider: str = "ollama", model: str | None = None) -> LLMProvider:
         ValueError: If provider is unknown.
     """
     provider = provider.lower()
+
+    if provider in _THIRD_PARTY_PROVIDERS:
+        cfg = _THIRD_PARTY_PROVIDERS[provider]
+        return OpenAICompatibleLLM(
+            model=model or cfg["default_model"],
+            base_url=cfg["base_url"],
+            provider_name=provider,
+            api_key_env=cfg["api_key_env"],
+        )
 
     if provider == "ollama":
         return OllamaLLM(model=model or "qwen2.5-coder:7b")
@@ -496,7 +559,13 @@ def get_llm(provider: str = "ollama", model: str | None = None) -> LLMProvider:
             api_key_env="OPENCODE_API_KEY",
         )
 
+    valid_options = ", ".join(
+        sorted(
+            {"ollama", "anthropic", "openai", "opencode", "go", "zen"}
+            | set(_THIRD_PARTY_PROVIDERS.keys())
+        )
+    )
     raise ValueError(
         f"Unknown LLM provider: '{provider}'. "
-        "Valid options: ollama, anthropic, openai, opencode, go, zen"
+        f"Valid options: {valid_options}"
     )

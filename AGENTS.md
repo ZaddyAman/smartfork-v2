@@ -36,3 +36,24 @@ src/smartfork/
 - List fields default to empty lists, never None.
 - Log errors with loguru. Show user-friendly messages for known failures.
 - NEVER crash with an unhandled exception.
+
+## Supported LLM Providers
+
+| Provider | Environment Variable | Example Model | Notes |
+|---|---|---|---|
+| ollama | (none) | qwen2.5-coder:7b | Local models via Ollama |
+| anthropic | ANTHROPIC_API_KEY | claude-3-haiku-20240307 | |
+| openai | OPENAI_API_KEY | gpt-4o-mini | |
+| opencode | OPENCODE_API_KEY | qwen3.5-plus | |
+| go | OPENCODE_API_KEY | qwen3.5-plus | |
+| zen | OPENCODE_API_KEY | qwen3.5-plus | |
+| openrouter | OPENROUTER_API_KEY | meta-llama/llama-3.3-70b-instruct:free | Free tier available |
+| groq | GROQ_API_KEY | llama-3.3-70b-versatile | |
+| gemini | GOOGLE_API_KEY | gemini-1.5-flash-latest | |
+| together | TOGETHER_API_KEY | meta-llama/Llama-3.3-70B-Instruct-Turbo | |
+| mistral | MISTRAL_API_KEY | mistral-large-latest | |
+| deepseek | DEEPSEEK_API_KEY | deepseek-chat | |
+| fireworks | FIREWORKS_API_KEY | accounts/fireworks/models/llama-v3p1-8b-instruct | |
+| cohere | COHERE_API_KEY | command-r | |
+| xai | XAI_API_KEY | grok-2-latest | |
+| perplexity | PERPLEXITY_API_KEY | sonar | |
