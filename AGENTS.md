@@ -16,16 +16,23 @@ pytest tests/ -x     # Tests (stop on first failure)
 ```
 src/smartfork/
 ├── models/      — All Pydantic models, dataclasses, enums, protocols
-├── providers/   — LLM + Embedding backends
+├── providers/   — LLM + Embedding backends (15+ providers)
 ├── adapters/    — Session format parsers (7 agents)
-├── indexer/     — Parsing, chunking, embedding, metadata store, supersession
-├── search/      — Deterministic + Agentic search engines
+├── indexer/     — Session-level embedding, relationship detection, metadata store
+├── search/      — QueryInterpreter, DeterministicSearchEngine, SearchOrchestrator
 ├── fork/        — Fork context assembler and generator
 ├── vault/       — Obsidian vault generator
 ├── tui/         — Textual TUI screens and widgets
-├── mcp/         — MCP server
+├── mcp/         — MCP server for Claude Code
 └── cli/         — Typer CLI commands
 ```
+
+## Storage Architecture
+- **SQLite** with WAL mode (single file: `~/.smartfork/metadata.db`)
+- **FTS5** virtual table for full-text search (`sessions_fts`)
+- **sqlite-vec** virtual table for vector search (`session_vectors`) — optional, graceful fallback to FTS5-only
+- **session_relationships** table for continuation/supersession/branch/related graph
+- Schema auto-migrates v0 → v4 on startup
 
 ## Key Conventions
 - All Pydantic models in `models/`. Never define models in other modules.

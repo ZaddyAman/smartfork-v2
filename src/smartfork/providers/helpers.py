@@ -26,7 +26,11 @@ def _start_ollama_server() -> bool:
             ["ollama", "serve"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, "CREATE_NO_WINDOW") else 0,
+            creationflags=(
+                subprocess.CREATE_NO_WINDOW
+                if hasattr(subprocess, "CREATE_NO_WINDOW")
+                else 0
+            ),
         )
         logger.info("Started Ollama server in background")
         return True
@@ -78,22 +82,32 @@ def check_ollama_available(model: str) -> bool:
             try:
                 assert ollama is not None
                 response = ollama.list()
-                model_list = response.models if hasattr(response, "models") else response.get("models", [])
-                model_names = [m.model if hasattr(m, "model") else m.get("name", "") for m in model_list]
+                model_list = (
+                    response.models
+                    if hasattr(response, "models")
+                    else response.get("models", [])
+                )
+                model_names = [
+                    m.model if hasattr(m, "model") else m.get("name", "")
+                    for m in model_list
+                ]
                 model_base = model.split(":")[0]
                 for name in model_names:
                     if not name:
                         continue
                     if name == model or name.startswith(model_base):
                         return True
-                logger.warning(f"Model '{model}' is not pulled. Pull it with: ollama pull {model}")
+                logger.warning(
+                    f"Model '{model}' is not pulled. Pull it with: ollama pull {model}"
+                )
                 return False
             except Exception as e:
                 logger.error(f"Ollama server started but still unreachable: {e}")
                 return False
         else:
             logger.error(
-                "Cannot connect to Ollama and failed to start it. Start it manually with: ollama serve"
+                "Cannot connect to Ollama and failed to start it. "
+                "Start it manually with: ollama serve"
             )
             return False
 
@@ -151,7 +165,10 @@ def list_available_ollama_models() -> list[str]:
         assert ollama is not None
         response = ollama.list()
         model_list = response.models if hasattr(response, "models") else response.get("models", [])
-        return [m.model if hasattr(m, "model") else m.get("name", "") for m in model_list]
+        return [
+            str(m.model if hasattr(m, "model") else m.get("name", ""))
+            for m in model_list
+        ]
     except Exception:
         return []
 

@@ -204,7 +204,9 @@ class OpenCodeAdapter(SessionAdapter):
         return None
 
 
-def _get_user_content(cur, msg_id: str, msg_data: dict) -> str:
+def _get_user_content(
+    cur: sqlite3.Cursor, msg_id: str, msg_data: dict[str, object]
+) -> str:
     """Get user message content from part rows with type='text'."""
     cur.execute(
         """SELECT data FROM part
@@ -218,7 +220,7 @@ def _get_user_content(cur, msg_id: str, msg_data: dict) -> str:
             part_data = json.loads(row["data"])
             if part_data.get("type") == "text":
                 content = part_data.get("text", "")
-                if content:
+                if isinstance(content, str) and content:
                     return content
         except (json.JSONDecodeError, TypeError):
             pass
@@ -233,7 +235,7 @@ def _get_user_content(cur, msg_id: str, msg_data: dict) -> str:
 
 
 def _get_assistant_content(
-    cur, msg_id: str, ts: int
+    cur: sqlite3.Cursor, msg_id: str, ts: int
 ) -> tuple[list[RawTurn], list[str]]:
     """Get assistant message content (reasoning + tools) from part rows."""
     turns: list[RawTurn] = []

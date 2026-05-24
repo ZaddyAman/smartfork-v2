@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -14,7 +13,6 @@ from rich.progress import ProgressColumn, Task
 from rich.style import Style
 from rich.table import Table
 from rich.text import Text
-
 
 # ──────────────────────────────────────────────────────────────────────
 # Palette definitions
@@ -254,16 +252,16 @@ def _rgb_to_hex(r: int, g: int, b: int) -> str:
 
 
 def _rgb_to_hsl(r: int, g: int, b: int) -> tuple[float, float, float]:
-    """Convert RGB (0-255) to HSL (h: 0-360, s: 0-1, l: 0-1)."""
+    """Convert RGB (0-255) to HSL (h: 0-360, s: 0-1, lum: 0-1)."""
     r1, g1, b1 = r / 255, g / 255, b / 255
     mx, mn = max(r1, g1, b1), min(r1, g1, b1)
-    l = (mx + mn) / 2
+    lum = (mx + mn) / 2
 
     if mx == mn:
         h = s = 0.0
     else:
         d = mx - mn
-        s = d / (2 - mx - mn) if l > 0.5 else d / (mx + mn)
+        s = d / (2 - mx - mn) if lum > 0.5 else d / (mx + mn)
         if mx == r1:
             h = ((g1 - b1) / d + (6 if g1 < b1 else 0)) * 60
         elif mx == g1:
@@ -271,13 +269,13 @@ def _rgb_to_hsl(r: int, g: int, b: int) -> tuple[float, float, float]:
         else:
             h = ((r1 - g1) / d + 4) * 60
 
-    return h, s, l
+    return h, s, lum
 
 
-def _hsl_to_rgb(h: float, s: float, l: float) -> tuple[int, int, int]:
+def _hsl_to_rgb(h: float, s: float, lum: float) -> tuple[int, int, int]:
     """Convert HSL to RGB (0-255)."""
     if s == 0:
-        v = int(round(l * 255))
+        v = int(round(lum * 255))
         return v, v, v
 
     def hue_to_rgb(p: float, q: float, t: float) -> float:
@@ -293,8 +291,8 @@ def _hsl_to_rgb(h: float, s: float, l: float) -> tuple[int, int, int]:
             return p + (q - p) * (2 / 3 - t) * 6
         return p
 
-    q = l * (1 + s) if l < 0.5 else l + s - l * s
-    p = 2 * l - q
+    q = lum * (1 + s) if lum < 0.5 else lum + s - lum * s
+    p = 2 * lum - q
     h_norm = h / 360
 
     return (
@@ -307,8 +305,8 @@ def _hsl_to_rgb(h: float, s: float, l: float) -> tuple[int, int, int]:
 def interpolate_color(color_a: str, color_b: str, t: float) -> str:
     """Interpolate between two hex colors via HSL. t in [0, 1]."""
     t = max(0.0, min(1.0, t))
-    h1, s1, l1 = _rgb_to_hsl(*_hex_to_rgb(color_a))
-    h2, s2, l2 = _rgb_to_hsl(*_hex_to_rgb(color_b))
+    h1, s1, lum1 = _rgb_to_hsl(*_hex_to_rgb(color_a))
+    h2, s2, lum2 = _rgb_to_hsl(*_hex_to_rgb(color_b))
 
     # Shortest path on hue circle
     dh = h2 - h1
@@ -320,9 +318,9 @@ def interpolate_color(color_a: str, color_b: str, t: float) -> str:
 
     h = (h1 + (h2 - h1) * t) % 360
     s = s1 + (s2 - s1) * t
-    l = l1 + (l2 - l1) * t
+    lum = lum1 + (lum2 - lum1) * t
 
-    return _rgb_to_hex(*_hsl_to_rgb(h, s, l))
+    return _rgb_to_hex(*_hsl_to_rgb(h, s, lum))
 
 
 # ──────────────────────────────────────────────────────────────────────

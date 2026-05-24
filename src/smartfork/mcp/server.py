@@ -33,7 +33,7 @@ class SmartForkMCPServer:
             from smartfork.search.deterministic import DeterministicSearchEngine
 
             engine = DeterministicSearchEngine()
-            results = engine.search(query, n_results=n)
+            results = engine.search(query, top_k=n)
             return [
                 {
                     "session_id": r.session_id,
@@ -50,12 +50,24 @@ class SmartForkMCPServer:
     def fork_session(self, session_id: str, intent: str = "continue") -> str:
         """Generate fork context from a session."""
         try:
+            from smartfork.config import get_config
             from smartfork.fork.assembler import ForkAssembler
+            from smartfork.indexer.metadata_store import MetadataStore
+            from smartfork.models.fork import ForkIntent
+
+            cfg = get_config()
+            store = MetadataStore(cfg.sqlite_db_path)
+            session_doc = store.get_session_document(session_id)
+            if session_doc is None:
+                return f"# Handoff: {session_id}\n\nSession not found."
 
             assembler = ForkAssembler()
-            report = assembler.assemble(session_id, user_query="")
-            if report and report.handoff_content:
-                return report.handoff_content
+            intent_enum = ForkIntent(intent.upper())
+            handoff = assembler.assemble(
+                session_doc, intent=intent_enum, user_query=""
+            )
+            if handoff:
+                return handoff
             return f"# Handoff: {session_id}\n\nNo context available."
         except Exception as e:
             logger.error(f"fork_session failed: {e}")
@@ -87,7 +99,7 @@ class SmartForkMCPServer:
             from smartfork.search.deterministic import DeterministicSearchEngine
 
             engine = DeterministicSearchEngine()
-            results = engine.search(query, n_results=top_k)
+            results = engine.search(query, top_k=top_k)
             return [
                 {
                     "session_id": r.session_id,
@@ -95,7 +107,11 @@ class SmartForkMCPServer:
                     "match_score": r.match_score,
                     "excerpt": r.excerpt,
                     "project": r.project_name,
-                    "quality": str(r.quality_tag) if hasattr(r, "quality_tag") and r.quality_tag else "unknown",
+                    "quality": (
+                        str(r.quality_tag)
+                        if hasattr(r, "quality_tag") and r.quality_tag
+                        else "unknown"
+                    ),
                 }
                 for r in results
             ]
@@ -163,10 +179,15 @@ class SmartForkMCPServer:
         try:
             from pathlib import Path
 
+            from smartfork.config import get_config
+            from smartfork.indexer.metadata_store import MetadataStore
             from smartfork.vault.obsidian import ObsidianVaultGenerator
 
+            cfg = get_config()
+            store = MetadataStore(cfg.sqlite_db_path)
+            sessions = store.get_all_session_documents()
             generator = ObsidianVaultGenerator()
-            generator.generate(Path(output_dir))
+            generator.generate(sessions, vault_dir=Path(output_dir))
             return str(Path(output_dir).absolute())
         except Exception as e:
             logger.error(f"vault_export failed: {e}")
