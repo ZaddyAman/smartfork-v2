@@ -7,8 +7,16 @@ from smartfork.models.config import (
     SearchConfig,
     UIConfig,
 )
+from smartfork.models.enrichment import SessionEnrichment
 from smartfork.models.fork import ContextReport, ForkIntent
 from smartfork.models.progress import ProgressEvent
+from smartfork.models.query import QueryInterpretation
+from smartfork.models.relationship import (
+    Chain,
+    SessionRelationship,
+    TimelineEntry,
+    TimelineSummary,
+)
 from smartfork.models.search import (
     BatchJudgeResult,
     BatchRerankResult,
@@ -61,4 +69,13 @@ __all__ = [
     "SupersessionLink",
     "ResolutionStatus",
     "SIMILARITY_THRESHOLDS",
+    # Relationship / Chain / Timeline
+    "SessionRelationship",
+    "Chain",
+    "TimelineEntry",
+    "TimelineSummary",
+    # Query
+    "QueryInterpretation",
+    # Enrichment
+    "SessionEnrichment",
 ]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -30,8 +29,14 @@ class TestIndexCommand:
     @patch("smartfork.cli.display.IndexDisplay")
     def test_full_index(self, mock_display, mock_indexer_cls, runner: CliRunner) -> None:
         mock_indexer = mock_indexer_cls.return_value
-        mock_indexer.index_all.return_value = {"scanned": 1, "parsed": 1, "chunked": 10, "stored": 10, "errors": 0}
-        
+        mock_indexer.index_all.return_value = {
+            "scanned": 1,
+            "parsed": 1,
+            "chunked": 10,
+            "stored": 10,
+            "errors": 0,
+        }
+
         result = runner.invoke(app, ["index", "--full"])
         assert result.exit_code == 0
         assert "Indexing Summary" in result.output
@@ -41,8 +46,14 @@ class TestIndexCommand:
     @patch("smartfork.cli.display.IndexDisplay")
     def test_incremental_index(self, mock_display, mock_indexer_cls, runner: CliRunner) -> None:
         mock_indexer = mock_indexer_cls.return_value
-        mock_indexer.index_incremental.return_value = {"scanned": 1, "parsed": 1, "chunked": 10, "stored": 10, "errors": 0}
-        
+        mock_indexer.index_incremental.return_value = {
+            "scanned": 1,
+            "parsed": 1,
+            "chunked": 10,
+            "stored": 10,
+            "errors": 0,
+        }
+
         result = runner.invoke(app, ["index"])
         assert result.exit_code == 0
         assert "Indexing Summary" in result.output
@@ -52,8 +63,14 @@ class TestIndexCommand:
     @patch("smartfork.cli.display.IndexDisplay")
     def test_no_embeddings_stored(self, mock_display, mock_indexer_cls, runner: CliRunner) -> None:
         mock_indexer = mock_indexer_cls.return_value
-        mock_indexer.index_all.return_value = {"scanned": 1, "parsed": 1, "chunked": 10, "stored": 0, "errors": 0}
-        
+        mock_indexer.index_all.return_value = {
+            "scanned": 1,
+            "parsed": 1,
+            "chunked": 10,
+            "stored": 0,
+            "errors": 0,
+        }
+
         result = runner.invoke(app, ["index", "--full"])
         assert result.exit_code == 0
         assert "0 stored as embeddings" in result.output
@@ -61,17 +78,27 @@ class TestIndexCommand:
 
 class TestSearchCommand:
     @patch("smartfork.search.orchestrator.SearchOrchestrator")
-    @patch("smartfork.providers.llm.OllamaLLM")
+    @patch("smartfork.providers.get_llm")
     @patch("smartfork.providers.helpers.check_ollama_available")
-    def test_basic_search(self, mock_check, mock_llm_cls, mock_orchestrator_cls, runner: CliRunner) -> None:
+    def test_basic_search(
+        self, mock_check, mock_get_llm, mock_orchestrator_cls, runner: CliRunner
+    ) -> None:
         from smartfork.models.search import ResultCard
+
         mock_check.return_value = True
         mock_orchestrator = mock_orchestrator_cls.return_value
         mock_orchestrator.search.return_value = [
             ResultCard(
-                rank=1, session_id="sess-123", title="Fix auth bug", project_name="auth-service",
-                match_score=0.95, time_ago="2 days ago", excerpt="Fixed the login flow.",
-                tags=["python", "auth"], files_summary="3 files edited", fork_command="smartfork fork sess-123",
+                rank=1,
+                session_id="sess-123",
+                title="Fix auth bug",
+                project_name="auth-service",
+                match_score=0.95,
+                time_ago="2 days ago",
+                excerpt="Fixed the login flow.",
+                tags=["python", "auth"],
+                files_summary="3 files edited",
+                fork_command="smartfork fork sess-123",
             )
         ]
         result = runner.invoke(app, ["search", "auth bug"])
@@ -81,9 +108,11 @@ class TestSearchCommand:
         assert "orchestrator" in result.output
 
     @patch("smartfork.search.orchestrator.SearchOrchestrator")
-    @patch("smartfork.providers.llm.OllamaLLM")
+    @patch("smartfork.providers.get_llm")
     @patch("smartfork.providers.helpers.check_ollama_available")
-    def test_no_results(self, mock_check, mock_llm_cls, mock_orchestrator_cls, runner: CliRunner) -> None:
+    def test_no_results(
+        self, mock_check, mock_get_llm, mock_orchestrator_cls, runner: CliRunner
+    ) -> None:
         mock_check.return_value = True
         mock_orchestrator = mock_orchestrator_cls.return_value
         mock_orchestrator.search.return_value = []
@@ -94,12 +123,20 @@ class TestSearchCommand:
     @patch("smartfork.search.deterministic.DeterministicSearchEngine")
     def test_fast_flag(self, mock_engine_cls, runner: CliRunner) -> None:
         from smartfork.models.search import ResultCard
+
         mock_engine = mock_engine_cls.return_value
         mock_engine.search.return_value = [
             ResultCard(
-                rank=1, session_id="sess-456", title="Fast result", project_name="fast-project",
-                match_score=0.85, time_ago="1 day ago", excerpt="Fast path result.",
-                tags=["fast"], files_summary="1 file edited", fork_command="smartfork fork sess-456",
+                rank=1,
+                session_id="sess-456",
+                title="Fast result",
+                project_name="fast-project",
+                match_score=0.85,
+                time_ago="1 day ago",
+                excerpt="Fast path result.",
+                tags=["fast"],
+                files_summary="1 file edited",
+                fork_command="smartfork fork sess-456",
             )
         ]
         result = runner.invoke(app, ["search", "--fast", "fast query"])
@@ -117,31 +154,45 @@ class TestSearchCommand:
         assert "--fast" in result.output
 
     @patch("smartfork.search.orchestrator.SearchOrchestrator")
-    @patch("smartfork.providers.llm.OllamaLLM")
+    @patch("smartfork.providers.get_llm")
     @patch("smartfork.providers.helpers.check_ollama_available")
-    def test_empty_results_shows_reasoning(self, mock_check, mock_llm_cls, mock_orchestrator_cls, runner: CliRunner) -> None:
+    def test_empty_results_shows_reasoning(
+        self, mock_check, mock_get_llm, mock_orchestrator_cls, runner: CliRunner
+    ) -> None:
         mock_check.return_value = True
         mock_orchestrator = mock_orchestrator_cls.return_value
         mock_orchestrator.search.return_value = []
-        mock_orchestrator.last_empty_reasoning = "Reviewed 3 candidates but none matched. s1: not relevant"
+        mock_orchestrator.last_empty_reasoning = (
+            "Reviewed 3 candidates but none matched. s1: not relevant"
+        )
         result = runner.invoke(app, ["search", "auth bug"])
         assert result.exit_code == 0
         assert "No relevant sessions found" in result.output
         assert "Reviewed 3 candidates" in result.output
 
     @patch("smartfork.search.orchestrator.SearchOrchestrator")
-    @patch("smartfork.providers.llm.OllamaLLM")
+    @patch("smartfork.providers.get_llm")
     @patch("smartfork.providers.helpers.check_ollama_available")
-    def test_card_display_format(self, mock_check, mock_llm_cls, mock_orchestrator_cls, runner: CliRunner) -> None:
+    def test_card_display_format(
+        self, mock_check, mock_get_llm, mock_orchestrator_cls, runner: CliRunner
+    ) -> None:
         from smartfork.models.search import ResultCard
+
         mock_check.return_value = True
         mock_orchestrator = mock_orchestrator_cls.return_value
         mock_orchestrator.search.return_value = [
             ResultCard(
-                rank=1, session_id="sess-789", title="Card Title", project_name="my-project",
-                match_score=0.92, time_ago="3 hours ago", excerpt="Query-aware excerpt here.",
+                rank=1,
+                session_id="sess-789",
+                title="Card Title",
+                project_name="my-project",
+                match_score=0.92,
+                time_ago="3 hours ago",
+                excerpt="Query-aware excerpt here.",
                 quality_badge="[green]Strong match[/green]",
-                tags=["python", "api"], files_summary="5 files edited", fork_command="smartfork fork sess-789",
+                tags=["python", "api"],
+                files_summary="5 files edited",
+                fork_command="smartfork fork sess-789",
             )
         ]
         result = runner.invoke(app, ["search", "card test"])
@@ -159,13 +210,15 @@ class TestForkCommand:
     @patch("smartfork.indexer.metadata_store.MetadataStore")
     @patch("smartfork.fork.assembler.ForkAssembler")
     @patch("smartfork.fork.assembler.ForkExporter")
-    def test_fork_continue(self, mock_exporter, mock_assembler_cls, mock_store_cls, runner: CliRunner) -> None:
+    def test_fork_continue(
+        self, mock_exporter, mock_assembler_cls, mock_store_cls, runner: CliRunner
+    ) -> None:
         mock_store = mock_store_cls.return_value
         mock_store.get_session_document.return_value = MagicMock()
-        
+
         mock_assembler = mock_assembler_cls.return_value
         mock_assembler.assemble.return_value = "Handoff content"
-        
+
         result = runner.invoke(app, ["fork", "sess-123"])
         assert result.exit_code == 0
         assert "Generating" in result.output
@@ -174,7 +227,7 @@ class TestForkCommand:
     def test_fork_invalid_session(self, mock_store_cls, runner: CliRunner) -> None:
         mock_store = mock_store_cls.return_value
         mock_store.get_session_document.return_value = None
-        
+
         result = runner.invoke(app, ["fork", "invalid-123"])
         assert result.exit_code == 1
         assert "not found" in result.output.lower()
@@ -188,9 +241,9 @@ class TestStatusCommand:
             "total_sessions": 10,
             "by_agent": {"claudecode": 10},
             "by_project": {"test": 10},
-            "by_quality": {"high": 5, "medium": 5}
+            "by_quality": {"high": 5, "medium": 5},
         }
-        
+
         result = runner.invoke(app, ["status"])
         assert result.exit_code == 0
         assert "Sessions" in result.output
@@ -249,10 +302,10 @@ class TestVaultCommand:
     def test_generate_vault(self, mock_gen_cls, mock_store_cls, runner: CliRunner) -> None:
         mock_store = mock_store_cls.return_value
         mock_store.get_all_session_documents.return_value = [MagicMock()]
-        
+
         mock_gen = mock_gen_cls.return_value
         mock_gen.generate.return_value = "/path/to/vault"
-        
+
         result = runner.invoke(app, ["vault"])
         assert result.exit_code == 0
         assert "Vault created at: /path/to/vault" in result.output

@@ -46,6 +46,10 @@ class RawSessionData:
     # Adapter extras (not used by core pipeline)
     extra: dict[str, Any] = field(default_factory=dict)
 
+    # Relationship links
+    parent_id: str | None = None
+    previous_session_id: str | None = None
+
     @property
     def duration_minutes(self) -> float:
         if self.session_end > self.session_start > 0:
@@ -103,6 +107,10 @@ class SessionDocument:
     # Quality (set at index time)
     quality_tag: QualityTag = QualityTag.UNKNOWN
     tech_tags: list[str] = field(default_factory=list)
+
+    # Relationship links
+    parent_id: str | None = None
+    previous_session_id: str | None = None
 
     # Index metadata
     indexed_at: int = 0  # ms

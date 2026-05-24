@@ -81,6 +81,22 @@ class TestRawSessionData:
         )
         assert data.extra["custom_key"] == "value"
 
+    def test_relationship_links_default_none(self) -> None:
+        data = RawSessionData(session_id="s1", agent_id="test", session_path=Path("/tmp"))
+        assert data.parent_id is None
+        assert data.previous_session_id is None
+
+    def test_relationship_links_can_be_set(self) -> None:
+        data = RawSessionData(
+            session_id="s1",
+            agent_id="test",
+            session_path=Path("/tmp"),
+            parent_id="parent-1",
+            previous_session_id="prev-1",
+        )
+        assert data.parent_id == "parent-1"
+        assert data.previous_session_id == "prev-1"
+
 
 class TestQualityTag:
     def test_enum_values(self) -> None:
@@ -134,3 +150,25 @@ class TestSessionDocument:
         assert doc.tech_tags == ["FastAPI", "Pydantic"]
         assert doc.edit_count == 2
         assert len(doc.propositions) == 2
+
+    def test_relationship_links_default_none(self) -> None:
+        doc = SessionDocument(
+            session_id="s1",
+            agent="kilocode",
+            project_name="p1",
+            project_root="/tmp",
+        )
+        assert doc.parent_id is None
+        assert doc.previous_session_id is None
+
+    def test_relationship_links_can_be_set(self) -> None:
+        doc = SessionDocument(
+            session_id="s1",
+            agent="kilocode",
+            project_name="p1",
+            project_root="/tmp",
+            parent_id="parent-1",
+            previous_session_id="prev-1",
+        )
+        assert doc.parent_id == "parent-1"
+        assert doc.previous_session_id == "prev-1"

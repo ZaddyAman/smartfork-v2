@@ -57,13 +57,13 @@ Use for: Running quality checks after implementation.
 2. Count stories where "passes" is false
 3. If count is 0 → STOP and reply with <promise>COMPLETE</promise>
 4. Pick the story with the LOWEST "priority" number where "passes" is false
-5. Read the spec file from the story's "spec" field (e.g., specs/00-architecture.md)
+5. Read the spec file from the story's "spec" field. The spec may be in either `ralph/` or `specs/` — try BOTH paths: `ralph/{spec_file}` and `specs/{spec_file}`. Use whichever exists.
 6. Read ralph/progress.txt (check Codebase Patterns section)
 7. Delegate to ralph-plan subagent:
-   "Study specs/{spec_file} and the existing codebase. For story {story_id} '{story_title}', identify what already exists vs what needs to be built. The acceptance criteria are: {acceptance_criteria}"
+   "Study the spec file for this story. Try BOTH paths: ralph/{spec_file} AND specs/{spec_file}. Use whichever exists. For story {story_id} '{story_title}', identify what already exists vs what needs to be built. The acceptance criteria are: {acceptance_criteria}"
 8. Review plan output
 9. Delegate to ralph-worker subagent(s) to IMPLEMENT:
-   "Implement story {story_id}: {story_title}. Spec: specs/{spec_file}. Acceptance criteria: {acceptance_criteria}. Write complete production code with tests. Follow conventions from AGENTS.md and progress.txt Codebase Patterns. Full implementations only — no placeholders."
+    "Implement story {story_id}: {story_title}. Spec: try ralph/{spec_file} or specs/{spec_file} (use whichever exists). Acceptance criteria: {acceptance_criteria}. Write complete production code with tests. Follow conventions from AGENTS.md and progress.txt Codebase Patterns. Full implementations only — no placeholders."
 10. Delegate to ralph-test subagent (EXACTLY 1):
     "Run quality checks: ruff check src/, mypy src/, pytest tests/ -x. Report PASS/FAIL with exact errors."
 11. Evaluate test results:

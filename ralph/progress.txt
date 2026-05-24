@@ -367,3 +367,43 @@ Started: $(date)
   - go and opencode share the same base_url (https://opencode.ai/zen/go/v1) by design; zen is distinct (https://opencode.ai/zen/v1)
   - No config validator changes needed because _backfill_tiered_llms is purely a backfill pass
 ---
+
+## 2026-05-17 - US-013
+- Added 10 third-party OpenAI-compatible providers to get_llm() factory: openrouter, groq, gemini, together, mistral, deepseek, fireworks, cohere, xai, perplexity
+- Added _THIRD_PARTY_PROVIDERS mapping in providers/llm.py with base_url, api_key_env, and default_model for each
+- Added VALID_LLM_PROVIDERS set to config.py and integrated provider name validation into _backfill_tiered_llms
+- Updated AGENTS.md with a comprehensive provider table showing env vars, example models, and free tier notes
+- Added parametrized tests in tests/providers/test_llm.py covering all 10 providers plus case-insensitivity and custom model overrides
+- Added config validation tests in tests/test_config.py for valid/invalid providers and backfill behavior
+- Fixed 4 pre-existing failing tests in tests/test_edge_cases.py (unrelated to this story but part of increment)
+- 80 tests passing in modified test files, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - A single _THIRD_PARTY_PROVIDERS dict makes adding new providers a one-line change
+  - Provider validation in _backfill_tiered_llms is the right place because it runs after backfilling and catches invalid defaults
+  - Case-insensitive validation should normalize to lowercase before checking membership
+  - Pre-existing test failures in edge_cases.py were caused by CLI flag mismatches (--force vs --full) and missing TUI module imports
+  - The full test suite is large (~622 tests); targeted runs on modified files are much faster for iteration
+---
+
+## 2026-05-24 - US-014
+- Created foundational data models for the new search architecture
+- Files created: src/smartfork/models/relationship.py, src/smartfork/models/query.py, src/smartfork/models/enrichment.py
+- Files modified: src/smartfork/models/session.py, src/smartfork/models/__init__.py
+- Files created: tests/models/test_relationship.py (17 tests), test_query.py (7 tests), test_enrichment.py (7 tests)
+- Files modified: tests/models/test_session.py (4 new tests for parent_id/previous_session_id), tests/cli/test_commands.py (fixed pre-existing test failures)
+- SessionRelationship with 4 relationship types (continuation/supersession/branch/related), confidence 0-1 validation, __post_init__ validation
+- Chain with sessions list, chain_type, head/tail session refs, __post_init__ validation
+- TimelineEntry and TimelineSummary for multi-session timeline display
+- QueryInterpretation for structured query understanding (replaces QueryDecomposition in new arch)
+- SessionEnrichment for single-LLM-call indexing enrichment with auto-truncation and tag dedup/sort
+- Added parent_id and previous_session_id to RawSessionData and SessionDocument (default None, backward compatible)
+- All models exported from models/__init__.py
+- 49 tests passing, ruff clean, mypy clean on modified files
+- **Learnings for future iterations:**
+  - The project follows @dataclass pattern with __post_init__ for validation (not Pydantic) for most models
+  - QualityTag StrEnum already exists in session.py — reuse it for enrichment models
+  - Chain.sessions uses list[SessionDocument] which creates a cross-import to session.py — no circular dep since session.py doesn't import relationship.py
+  - SessionEnrichment.title/Summary truncation and tech_tags dedup/sort done in __post_init__ 
+  - The full test suite has pre-existing issues (hanging MCP tests, ruff/mypy issues in theme.py, opencode.py, mcp/server.py) that are tracked for later cleanup (US-030/031)
+  - Pre-existing CLI test failures fixed: patch target was OllamaLLM but CLI imports get_llm; changed to patch get_llm directly
+---
