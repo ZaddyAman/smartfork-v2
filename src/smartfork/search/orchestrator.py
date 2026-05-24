@@ -1,56 +1,45 @@
-"""SearchOrchestrator that wires all search stages into a pipeline."""
+"""SearchOrchestrator — QueryInterpreter → DeterministicSearchEngine → (deep synthesis)."""
 
 from typing import Any
 
 from loguru import logger
 
-from smartfork.models.search import JudgeOutput, QueryDecomposition, ResultCard
-from smartfork.search.decomposer import QueryDecomposer
-from smartfork.search.judge import BatchJudgeAgent
-from smartfork.search.parallel_retriever import ParallelRetriever
-from smartfork.search.reranker import RerankerAgent
-from smartfork.search.synthesis import SynthesisAgent
+from smartfork.models.query import QueryInterpretation
+from smartfork.models.search import ResultCard
+from smartfork.search.deterministic import DeterministicSearchEngine
+from smartfork.search.query_interpreter import QueryInterpreter
 
 
 class SearchOrchestrator:
-    """Wires decomposer → retriever → reranker → judge → synthesis into a pipeline."""
+    """Wires QueryInterpreter → DeterministicSearchEngine → optional deep synthesis."""
 
     def __init__(
         self,
-        decomposer: QueryDecomposer,
-        retriever: ParallelRetriever,
-        reranker: RerankerAgent,
-        judge: BatchJudgeAgent,
-        synthesis: SynthesisAgent,
+        embedder: Any | None = None,
+        metadata_store: Any | None = None,
+        llm: Any | None = None,
+        use_fast: bool = False,
+        use_deep: bool = False,
     ) -> None:
-        """Initialize with all pipeline stage dependencies.
+        """Initialize with embedder, metadata store, and optional LLM.
 
         Args:
-            decomposer: LLM-based query decomposer.
-            retriever: Parallel deterministic search retriever.
-            reranker: LLM-based candidate reranker.
-            judge: LLM-based relevance judge.
-            synthesis: Deterministic ResultCard formatter.
+            embedder: Embedding model for vector search.
+            metadata_store: Metadata store for session data and FTS5.
+            llm: Optional LLM provider for query interpretation and synthesis.
+            use_fast: Skip all LLM calls and use deterministic search directly.
+            use_deep: Force deep mode (multi-session synthesis).
         """
-        self.decomposer = decomposer
-        self.retriever = retriever
-        self.reranker = reranker
-        self.judge = judge
-        self.synthesis = synthesis
+        self.embedder = embedder
+        self.store = metadata_store
+        self.llm = llm
+        self.use_fast = use_fast
+        self.use_deep = use_deep
+        self.interpreter = QueryInterpreter(llm=llm) if llm else None
+        self.engine = DeterministicSearchEngine(
+            embedder=embedder, metadata_store=metadata_store
+        )
         self.last_empty_reasoning: str = ""
-
-    def _build_empty_reasoning(self) -> str:
-        """Build a human-readable explanation for why no results were returned."""
-        rejected = getattr(self.judge, "rejected_judgments", [])
-        if not rejected:
-            return ""
-        reasons: list[str] = []
-        for j in rejected[:3]:
-            if j.reason:
-                reasons.append(f"{j.session_id}: {j.reason}")
-        if reasons:
-            return f"Reviewed {len(rejected)} candidates but none matched. " + "; ".join(reasons)
-        return f"Reviewed {len(rejected)} candidates but none matched your query."
 
     def search(
         self,
@@ -59,7 +48,14 @@ class SearchOrchestrator:
         project_filter: str | None = None,
         quality_filter: str | None = None,
     ) -> list[ResultCard]:
-        """Execute the 5-stage search pipeline.
+        """Execute the search pipeline.
+
+        Flow:
+          Fast mode:  DeterministicSearchEngine.search() directly (0 LLM calls).
+          Default:    QueryInterpreter.interpret() → DeterministicSearchEngine.search()
+                      (1 LLM call + deterministic search).
+          Deep mode:  Same as default + SessionGraphEngine + MultiSessionSynthesizer
+                      (2 LLM calls total).
 
         Args:
             query: Raw user search query.
@@ -72,138 +68,68 @@ class SearchOrchestrator:
         """
         self.last_empty_reasoning = ""
 
-        # Stage 1: Decompose
-        print("Decomposing query...")
-        try:
-            qd = self.decomposer.decompose(query)
-        except Exception as e:
-            logger.warning(f"Decomposer failed: {e}")
-            qd = QueryDecomposition(core_goal=query, search_variants=[query])
+        # ── Fast mode: 0 LLM calls ──────────────────────────────────────────
+        if self.use_fast:
+            print("Fast search...")
+            try:
+                return self.engine.search(query, top_k, project_filter, quality_filter)
+            except Exception as e:
+                logger.warning(f"Fast search failed: {e}")
+                return []
 
-        # Stage 2: Retrieve
-        variant_count = len(qd.search_variants) if qd.search_variants else 0
-        print(f"Searching {variant_count} variants...")
+        # ── Interpret query (1 LLM call) ────────────────────────────────────
+        print("Interpreting query...")
+        qi: QueryInterpretation
         try:
-            candidates = self.retriever.retrieve(
-                qd,
-                top_k=top_k,
-                project_filter=project_filter,
-                quality_filter=quality_filter,
+            if self.interpreter is not None:
+                qi = self.interpreter.interpret(query, deep_mode=self.use_deep)
+            else:
+                qi = QueryInterpreter(llm=None).interpret(query, deep_mode=self.use_deep)
+        except Exception as e:
+            logger.warning(f"QueryInterpreter failed: {e}. Using deterministic fallback.")
+            qi = QueryInterpreter(llm=None).interpret(query, deep_mode=self.use_deep)
+
+        # ── Deterministic search (0 LLM calls) ──────────────────────────────
+        print("Searching...")
+        search_query = qi.expanded_query or qi.original_query or query
+        try:
+            results = self.engine.search(
+                search_query, top_k, project_filter, quality_filter
             )
         except Exception as e:
-            logger.warning(f"Retriever failed: {e}")
-            candidates = []
-
-        if not candidates:
+            logger.warning(f"Deterministic search failed: {e}")
             return []
 
-        # Stage 3: Rerank
-        print(f"Reranking {len(candidates)} candidates...")
-        try:
-            reranked = self.reranker.rerank(
-                candidates,
-                query,
-                top_n=max(top_k * 3, 15),
-            )
-        except Exception as e:
-            logger.warning(f"Reranker failed: {e}")
-            reranked = sorted(
-                candidates,
-                key=lambda c: c.get("match_score", 0.0),
-                reverse=True,
-            )[: max(top_k * 3, 15)]
-
-        if not reranked:
+        if not results:
+            self.last_empty_reasoning = f"No results for expanded query: {search_query}"
             return []
 
-        # Stage 4: Judge
-        print("Judging relevance...")
-        try:
-            judgments = self.judge.judge(reranked, query, qd, top_n=top_k)
-        except Exception as e:
-            logger.warning(f"Judge failed: {e}")
-            return self._build_warning_cards(reranked, top_k)
+        # ── Deep mode: multi-session path (1 more LLM call) ─────────────────
+        if qi.needs_deep_mode or self.use_deep:
+            print("Deep synthesis...")
+            # TODO(SessionGraphEngine + MultiSessionSynthesizer — US-026, US-027)
+            # For now: annotate results with deep-mode marker.
+            try:
+                results = self._deep_synthesis(results, qi, query)
+            except Exception as e:
+                logger.warning(f"Deep synthesis failed: {e}. Returning results without narrative.")
 
-        if not judgments:
-            self.last_empty_reasoning = self._build_empty_reasoning()
-            return []
+        return results[:top_k]
 
-        # Stage 5: Synthesize
-        print("Synthesizing results...")
-        try:
-            cards = self.synthesis.synthesize(judgments, reranked, qd)
-        except Exception as e:
-            logger.warning(f"Synthesis failed: {e}")
-            cards = self._build_raw_cards(judgments, reranked, top_k)
-
-        return cards[:top_k]
-
-    def _build_warning_cards(
+    def _deep_synthesis(
         self,
-        candidates: list[dict[str, Any]],
-        top_k: int,
+        results: list[ResultCard],
+        interpretation: QueryInterpretation,
+        original_query: str,
     ) -> list[ResultCard]:
-        """Build ResultCards with warning badges when the judge fails."""
-        cards: list[ResultCard] = []
-        for rank, candidate in enumerate(candidates[:top_k], start=1):
-            cards.append(
-                ResultCard(
-                    rank=rank,
-                    session_id=candidate.get("session_id", ""),
-                    title=candidate.get("title", ""),
-                    project_name=candidate.get("project_name", ""),
-                    match_score=candidate.get(
-                        "relevance_score", candidate.get("match_score", 0.0)
-                    ),
-                    relevance_explanation="",
-                    quality_badge="[yellow]Unverified match[/yellow]",
-                    time_ago=candidate.get("time_ago", ""),
-                    duration=candidate.get("duration", ""),
-                    files_summary=candidate.get("files_summary", ""),
-                    excerpt=candidate.get("content", ""),
-                    tags=candidate.get("tags", []),
-                    fork_command=candidate.get("fork_command", ""),
-                )
-            )
-        return cards
+        """Placeholder for deep multi-session synthesis.
 
-    def _build_raw_cards(
-        self,
-        judgments: list[JudgeOutput],
-        candidates: list[dict[str, Any]],
-        top_k: int,
-    ) -> list[ResultCard]:
-        """Build ResultCards deterministically when synthesis fails."""
-        candidate_map: dict[str, dict[str, Any]] = {
-            c["session_id"]: c for c in candidates if "session_id" in c
-        }
-        cards: list[ResultCard] = []
-        rank = 1
-        for judgment in judgments[:top_k]:
-            if judgment.relevance_score < 0.5:
-                continue
-            candidate = candidate_map.get(judgment.session_id, {})
-            badge = (
-                "[green]Strong match[/green]"
-                if judgment.relevance_score >= 0.8
-                else "[yellow]Moderate match[/yellow]"
-            )
-            cards.append(
-                ResultCard(
-                    rank=rank,
-                    session_id=judgment.session_id,
-                    title=candidate.get("title", ""),
-                    project_name=candidate.get("project_name", ""),
-                    match_score=judgment.relevance_score,
-                    relevance_explanation=judgment.reason,
-                    quality_badge=badge,
-                    time_ago=candidate.get("time_ago", ""),
-                    duration=candidate.get("duration", ""),
-                    files_summary=candidate.get("files_summary", ""),
-                    excerpt=judgment.key_snippet,
-                    tags=candidate.get("tags", []),
-                    fork_command=candidate.get("fork_command", ""),
+        When SessionGraphEngine and MultiSessionSynthesizer land, this method
+        will be replaced with real graph traversal + LLM narrative generation.
+        """
+        for card in results:
+            if not card.relevance_explanation:
+                card.relevance_explanation = (
+                    "Deep mode: multi-session analysis requested."
                 )
-            )
-            rank += 1
-        return cards
+        return results

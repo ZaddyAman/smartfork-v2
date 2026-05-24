@@ -165,7 +165,7 @@ class TestSearchCommand:
         assert result.exit_code == 0
         assert "Fix auth bug" in result.output
         assert "auth-service" in result.output
-        assert "orchestrator" in result.output
+        assert "default (interpret + deterministic search)" in result.output
 
     @patch("smartfork.search.orchestrator.SearchOrchestrator")
     @patch("smartfork.providers.get_llm")

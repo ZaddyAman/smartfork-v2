@@ -278,12 +278,60 @@ class DeterministicSearchEngine:
             return {}
 
     def _build_fts5_query(self, query: str) -> str:
-        """Build an FTS5 MATCH query from keywords using OR groups joined with AND."""
+        """Build an FTS5 MATCH query from keywords using OR groups joined with AND.
+
+        If *query* already contains `` OR `` (e.g. from QueryInterpreter) it is
+        treated as a disjunction — top-level groups are joined with OR so that
+        any matching term scores.
+        """
         stop_words = {
             "the", "a", "an", "is", "was", "in", "on", "at", "to", "for",
             "and", "or", "of", "with", "by", "from", "as", "it", "this",
             "that", "these", "those", "i", "you", "he", "she", "we", "they",
+            "me", "my", "our", "us", "them", "their", "his", "her", "its",
+            "be", "been", "being", "have", "has", "had", "do", "does", "did",
+            "will", "would", "could", "should", "may", "might", "can",
+            "what", "which", "who", "when", "where", "why", "how",
+            "all", "any", "both", "each", "few", "more", "most", "other",
+            "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+            "than", "too", "very", "just", "now", "then", "here", "there",
+            "up", "down", "out", "off", "over", "under", "again", "further",
+            "once", "also", "if", "because", "until", "while", "about",
+            "against", "between", "into", "through", "during", "before",
+            "after", "above", "below", "am", "are",
         }
+
+        try:
+            from smartfork.search.query_interpreter import SYNONYM_MAP
+            has_synonyms = True
+        except ImportError:
+            has_synonyms = False
+
+        # Pre-expanded queries from QueryInterpreter use OR semantics at the top level.
+        if " OR " in query:
+            raw_terms = [t.strip() for t in query.split(" OR ")]
+            groups: list[str] = []
+            seen: set[str] = set()
+            for term in raw_terms:
+                words = [
+                    w.strip('"\'').lower()
+                    for w in term.split()
+                    if w.lower() not in stop_words and len(w.strip('"\'')) > 1
+                ]
+                for word in words:
+                    if word in seen:
+                        continue
+                    seen.add(word)
+                    if has_synonyms and word in SYNONYM_MAP:
+                        synonyms = [word] + [s for s in SYNONYM_MAP[word] if s not in seen]
+                        seen.update(synonyms)
+                        quoted = [f'"{s}"' for s in synonyms]
+                        groups.append(f"({' OR '.join(quoted)})")
+                    else:
+                        groups.append(f'"{word}"')
+            return " OR ".join(groups) if groups else query
+
+        # Original short-query path: AND together keyword groups.
         words = [
             w.strip('"\'').lower()
             for w in query.split()
@@ -293,14 +341,8 @@ class DeterministicSearchEngine:
         if not words:
             return query
 
-        try:
-            from smartfork.search.query_interpreter import SYNONYM_MAP
-            has_synonyms = True
-        except ImportError:
-            has_synonyms = False
-
-        groups: list[str] = []
-        seen: set[str] = set()
+        groups = []
+        seen = set()
 
         for word in words:
             if word in seen:

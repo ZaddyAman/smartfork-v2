@@ -197,7 +197,10 @@ def search(
     query: str = typer.Argument(..., help="Search query"),
     results: int = typer.Option(5, "--results", "-n", help="Number of results"),
     fast: bool = typer.Option(
-        False, "--fast", help="Use deterministic search directly (skip orchestrator)"
+        False, "--fast", help="Use deterministic search directly (0 LLM calls)"
+    ),
+    deep: bool = typer.Option(
+        False, "--deep", help="Enable deep mode (multi-session synthesis, +1 LLM call)"
     ),
 ) -> None:
     """Search indexed sessions."""
@@ -225,33 +228,20 @@ def search(
     orchestrator: Any = None
 
     if fast:
-        # Fast path: deterministic search directly
+        # Fast path: deterministic search directly (0 LLM calls)
         from smartfork.search.deterministic import DeterministicSearchEngine
 
         engine = DeterministicSearchEngine(embedder=embedder, metadata_store=store)
         search_results = engine.search(query, top_k=results)
     else:
-        # Default path: SearchOrchestrator with full pipeline
+        # Default / Deep path: SearchOrchestrator with QueryInterpreter
         from smartfork.providers import get_llm
-        from smartfork.search.decomposer import QueryDecomposer
-        from smartfork.search.deterministic import DeterministicSearchEngine
-        from smartfork.search.judge import BatchJudgeAgent
         from smartfork.search.orchestrator import SearchOrchestrator
-        from smartfork.search.parallel_retriever import ParallelRetriever
-        from smartfork.search.reranker import RerankerAgent
-        from smartfork.search.synthesis import SynthesisAgent
 
         try:
-            strategic_provider = cfg.strategic_llm_provider or cfg.llm_provider
-            strategic_model = cfg.strategic_llm_model or cfg.llm_model
-            smart_provider = cfg.smart_llm_provider or cfg.llm_provider
-            smart_model = cfg.smart_llm_model or cfg.llm_model
-
-            strategic_llm = get_llm(strategic_provider, strategic_model)
-            if strategic_provider == smart_provider and strategic_model == smart_model:
-                smart_llm = strategic_llm
-            else:
-                smart_llm = get_llm(smart_provider, smart_model)
+            llm_provider = cfg.llm_provider
+            llm_model = cfg.llm_model
+            llm = get_llm(llm_provider, llm_model)
         except RuntimeError as e:
             error(f"LLM setup failed: {e}")
             info(
@@ -260,13 +250,13 @@ def search(
             )
             raise typer.Exit(1) from None
 
-        decomposer = QueryDecomposer(strategic_llm)
-        deterministic_engine = DeterministicSearchEngine(embedder=embedder, metadata_store=store)
-        retriever = ParallelRetriever(deterministic_engine)
-        reranker = RerankerAgent(strategic_llm)
-        judge = BatchJudgeAgent(smart_llm)
-        synthesis = SynthesisAgent()
-        orchestrator = SearchOrchestrator(decomposer, retriever, reranker, judge, synthesis)
+        orchestrator = SearchOrchestrator(
+            embedder=embedder,
+            metadata_store=store,
+            llm=llm,
+            use_fast=False,
+            use_deep=deep,
+        )
 
         try:
             search_results = orchestrator.search(query, top_k=results)
@@ -299,8 +289,10 @@ def search(
 
         if embedder is None and search_results:
             warn("Vector search unavailable — results from keyword (BM25) only.")
+    elif deep:
+        search_mode = "deep (interpret + search + graph + synthesize)"
     else:
-        search_mode = "orchestrator (decompose + parallel + rerank + judge + synthesize)"
+        search_mode = "default (interpret + deterministic search)"
 
     if not search_results:
         info("No relevant sessions found.")

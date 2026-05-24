@@ -1,14 +1,9 @@
-"""Manual evaluation test suite for orchestrator pipeline (US-010).
-
-This module demonstrates that the SearchOrchestrator (with its multi-stage
-approach) can find sessions that deterministic search alone misses, even with
-mocked LLM stages.
+"""Manual evaluation test suite for the rewritten orchestrator (US-025).
 
 Each test case uses a query that does NOT contain keywords matching the
-expected session, ensuring deterministic search fails.  Mocked decomposer
-variants DO contain matching keywords, allowing the orchestrator pipeline to
-retrieve, rerank, judge, and synthesize the expected session into the final
-results.
+expected session, ensuring deterministic search alone misses it.  A mocked
+QueryInterpreter injects an *expanded_query* that contains the matching
+keywords, allowing the orchestrator to retrieve the expected session.
 """
 
 from dataclasses import dataclass
@@ -19,21 +14,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from smartfork.indexer.metadata_store import MetadataStore
-from smartfork.models.search import (
-    BatchJudgeResult,
-    BatchRerankResult,
-    JudgeOutput,
-    QueryDecomposition,
-    RerankResult,
-)
+from smartfork.models.query import QueryInterpretation
 from smartfork.models.session import QualityTag, SessionDocument
-from smartfork.search.decomposer import QueryDecomposer
 from smartfork.search.deterministic import DeterministicSearchEngine
-from smartfork.search.judge import BatchJudgeAgent
 from smartfork.search.orchestrator import SearchOrchestrator
-from smartfork.search.parallel_retriever import ParallelRetriever
-from smartfork.search.reranker import RerankerAgent
-from smartfork.search.synthesis import SynthesisAgent
 
 # ---------------------------------------------------------------------------
 # Session data — 12 realistic sessions with unique, non-overlapping keywords
@@ -191,7 +175,8 @@ class ManualTestCase:
 
     The ``query`` uses vocabulary that does NOT overlap with the expected
     session, so deterministic search fails.  The ``mock_variants`` contain
-    keywords that DO overlap, allowing the orchestrator pipeline to succeed.
+    keywords that DO overlap; the mocked QueryInterpreter returns an
+    expanded_query built from them so the orchestrator can succeed.
     """
 
     query: str
@@ -255,7 +240,7 @@ MANUAL_TEST_CASES: list[ManualTestCase] = [
     ManualTestCase(
         query="efficient data fetching pattern",
         expected_session_id="sess_graphql_resolver",
-        description="User remembers efficient data fetching but not GraphQL or DataLoader",  # noqa: E501
+        description="User remembers efficient data fetching but not GraphQL or DataLoader",
         mock_variants=[
             "graphql resolver dataloader",
             "nested query batching",
@@ -285,7 +270,7 @@ MANUAL_TEST_CASES: list[ManualTestCase] = [
     ManualTestCase(
         query="infrastructure as code for containers",
         expected_session_id="sess_terraform_aws",
-        description="User remembers IaC for containers but not Terraform or AWS ECS",  # noqa: E501
+        description="User remembers IaC for containers but not Terraform or AWS ECS",
         mock_variants=[
             "terraform aws ecs",
             "fargate cluster",
@@ -368,65 +353,35 @@ class TestDeterministicFails:
 
 
 # ---------------------------------------------------------------------------
-# Orchestrator (with mocked LLM stages) should find the expected session
+# Orchestrator (with mocked QueryInterpreter) should find the expected session
 # ---------------------------------------------------------------------------
 class TestOrchestratorFindsSession:
     @pytest.mark.parametrize("case", MANUAL_TEST_CASES)
     def test_orchestrator_finds_expected_session(
         self, manual_store: MetadataStore, case: ManualTestCase
     ) -> None:
-        # Build a mock LLM that returns the correct structured output for each
-        # stage (decomposer, reranker, judge) based on the expected session.
-        mock_llm = MagicMock()
-
-        def _structured_response(*args: Any, **kwargs: Any) -> Any:
-            schema = kwargs.get("output_schema")
-            if schema is QueryDecomposition:
-                return QueryDecomposition(
-                    core_goal=case.query,
-                    search_variants=case.mock_variants,
-                )
-            if schema is BatchRerankResult:
-                return BatchRerankResult(
-                    rankings=[
-                        RerankResult(
-                            session_id=case.expected_session_id,
-                            relevance_score=0.95,
-                            reason="Direct keyword match via decomposed variant",
-                        )
-                    ]
-                )
-            if schema is BatchJudgeResult:
-                return BatchJudgeResult(
-                    judgments=[
-                        JudgeOutput(
-                            session_id=case.expected_session_id,
-                            relevance_score=0.95,
-                            matches_query=True,
-                            reason="Confirmed match",
-                            key_snippet="Matched session content",
-                        )
-                    ]
-                )
-            return None
-
-        mock_llm.complete_structured.side_effect = _structured_response
-
-        # Build real pipeline stages
-        decomposer = QueryDecomposer(llm=mock_llm)
-        engine = DeterministicSearchEngine(metadata_store=manual_store)
-        retriever = ParallelRetriever(deterministic_engine=engine)
-        reranker = RerankerAgent(llm=mock_llm)
-        judge = BatchJudgeAgent(llm=mock_llm)
-        synthesis = SynthesisAgent()
-
-        orchestrator = SearchOrchestrator(
-            decomposer=decomposer,
-            retriever=retriever,
-            reranker=reranker,
-            judge=judge,
-            synthesis=synthesis,
+        # Build a mock QueryInterpreter that returns an expanded_query
+        # containing all the mock variants so BM25 can match.
+        mock_interpreter = MagicMock()
+        expanded = " OR ".join(case.mock_variants)
+        mock_interpreter.interpret.return_value = QueryInterpretation(
+            original_query=case.query,
+            keywords=[],
+            synonyms=[],
+            expanded_query=expanded,
+            intent="vague_memory",
+            needs_deep_mode=False,
         )
+
+        engine = DeterministicSearchEngine(metadata_store=manual_store)
+        orchestrator = SearchOrchestrator(
+            embedder=None,
+            metadata_store=manual_store,
+            llm=MagicMock(),
+        )
+        # Swap in mocked interpreter and real engine
+        orchestrator.interpreter = mock_interpreter  # type: ignore[assignment]
+        orchestrator.engine = engine  # type: ignore[assignment]
 
         results = orchestrator.search(case.query, top_k=5)
 
