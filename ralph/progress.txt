@@ -445,3 +445,20 @@ Started: $(date)
   - KiloCode and ClaudeCode adapters don't have parent_id in their data formats, so they correctly default to None
   - 4 pre-existing mypy errors in opencode.py (helper functions) remain — not caused by this change
 ---
+
+## 2026-05-24 - US-017
+- Built SessionEssenceBuilder to create condensed session text for embedding
+- Files created: src/smartfork/indexer/session_essence_builder.py, tests/indexer/test_session_essence_builder.py
+- Files modified: src/smartfork/indexer/__init__.py (added export + __all__)
+- SessionEssenceBuilder with build_essence(session) -> str and build_essence_with_instruction(session) -> str
+- Essence format: Task + Summary + Reasoning 1-3 (truncated) + Technologies sections
+- Each reasoning block truncated to max_reasoning_length (default 1500 chars) with "..." suffix
+- Only top max_reasoning_docs (default 3) reasoning docs included
+- Instruction prefix: "Represent this coding session for semantic retrieval: " (Ollama instruction-aware models)
+- Total essence bounded by max_total_tokens (default 5000, ~4 chars/token), gracefully drops reasoning blocks from end
+- 9 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - max_total_tokens enforced by character count (×4) since no tokenizer dependency — matches existing _estimate_tokens in chunker
+  - Sections only included when data is present (no empty "Reasoning:" or "Technologies:" lines)
+  - __init__.py needs __all__ list for ruff F401 when re-exporting imports
+---
