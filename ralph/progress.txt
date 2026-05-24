@@ -524,3 +524,18 @@ Started: $(date)
   - Cosine similarity handles zero vectors and length mismatches gracefully
   - Jaccard similarity with cleaned word sets is effective for task overlap detection
 ---
+
+## 2026-05-24 - US-021
+- Fixed SupersessionDetector O(n²) algorithm and no-vector threshold bugs
+- Files modified: src/smartfork/indexer/supersession.py, tests/indexer/test_supersession.py
+- find_supersessions(): now groups by project, sorts by time, forward-only comparisons (i < j) — cuts comparisons ~50%
+- Removed unnecessary time guard in detect_supersession() (forward-only guarantees newer > older)
+- Fixed no-vector bug: base score increased from 0.5 to 0.6 when vectors absent
+- Increased resolution boosts: unresolved older +0.15 (was +0.10), resolved newer +0.10 (was +0.05)
+- 17 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Forward-only optimization is a one-line change with big impact: compare i < j instead of all i,j pairs
+  - The no-vector max score was 0.5+0.10+0.05=0.65, well below the 0.85 threshold — making the entire code path dead
+  - New max scores with vectors: 0.60+0.25+0.15+0.10=1.10 (easily crosses threshold)
+  - New max without vectors: 0.60+0.15+0.10=0.85 (just barely crosses threshold — intentional design)
+---

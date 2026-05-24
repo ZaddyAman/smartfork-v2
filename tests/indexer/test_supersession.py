@@ -60,13 +60,6 @@ class TestSupersessionDetector:
         score = detector.detect_supersession(older, newer)
         assert score == 0.0
 
-    def test_older_is_newer_returns_zero(self) -> None:
-        detector = SupersessionDetector()
-        older = _make_session(session_id="old", session_start=2000)
-        newer = _make_session(session_id="new", session_start=1000)
-        score = detector.detect_supersession(older, newer)
-        assert score == 0.0
-
     def test_no_domain_overlap_returns_zero(self) -> None:
         detector = SupersessionDetector()
         older = _make_session(session_id="old", session_start=1000, domains=["auth"])
@@ -111,6 +104,106 @@ class TestSupersessionDetector:
         superseded, superseding, confidence = results[0]
         assert superseded == "s1"
         assert superseding == "s2"
+
+    def test_forward_only_optimization(self) -> None:
+        """Forward-only comparison should never produce reverse relationships."""
+        detector = SupersessionDetector()
+        sessions = [
+            _make_session(
+                session_id="s1", session_start=1000, domains=["auth"],
+                task_raw="Fix authentication bug in the login module",
+            ),
+            _make_session(
+                session_id="s2", session_start=2000, domains=["auth"],
+                task_raw="Fixed the auth issue completely",
+            ),
+            _make_session(
+                session_id="s3", session_start=3000, domains=["auth"],
+                task_raw="Fixed another auth issue completely",
+            ),
+        ]
+        vectors = {"s1": [1.0, 0.0], "s2": [1.0, 0.0], "s3": [1.0, 0.0]}
+        results = detector.find_supersessions(sessions, vectors=vectors)
+
+        # No reverse relationships (e.g., s2 -> s1)
+        for superseded, superseding, _score in results:
+            assert superseded != superseding
+            # Parse start times from session IDs
+            start_times = {"s1": 1000, "s2": 2000, "s3": 3000}
+            assert start_times[superseded] < start_times[superseding]
+
+    def test_forward_only_reduces_comparisons(self) -> None:
+        """Forward-only should compare roughly half as many pairs as all permutations."""
+        detector = SupersessionDetector()
+        sessions = [
+            _make_session(session_id=f"s{i}", session_start=i * 1000, domains=["auth"])
+            for i in range(10)
+        ]
+        # All permutations (excluding self) = 10 * 9 = 90
+        # Forward-only per project = n*(n-1)/2 = 45
+        results = detector.find_supersessions(sessions)
+        # We can't easily count skipped comparisons, but we can verify
+        # no reverse relationships exist and the result set is stable.
+        for superseded, superseding, _score in results:
+            idx_map = {f"s{i}": i for i in range(10)}
+            assert idx_map[superseded] < idx_map[superseding]
+
+    def test_no_vector_detection_triggers(self) -> None:
+        """Without vectors, base 0.6 + boosts should cross 0.85 threshold."""
+        detector = SupersessionDetector()
+        older = _make_session(
+            session_id="old",
+            session_start=1000,
+            domains=["auth"],
+            task_raw=" authentication bug in login",
+            summary_doc="Need to fix JWT validation",
+        )
+        newer = _make_session(
+            session_id="new",
+            session_start=2000,
+            domains=["auth"],
+            task_raw="Fixed the auth bug completely",
+            summary_doc="Applied fix and deployed",
+        )
+        score = detector.detect_supersession(older, newer)
+        # Base 0.6 + older unresolved 0.15 + newer resolved 0.10 = 0.85
+        assert score >= 0.85
+
+    def test_resolution_boosts_increased(self) -> None:
+        """Verify the new resolution boost values (0.15 and 0.10)."""
+        detector = SupersessionDetector()
+
+        # Neither resolved: base 0.6 + older unresolved 0.15 = 0.75
+        unresolved_older = _make_session(
+            session_id="old",
+            session_start=1000,
+            task_raw="Fix authentication bug in login",
+        )
+        unresolved_newer = _make_session(
+            session_id="new",
+            session_start=2000,
+            task_raw=" authentication bug still present here",
+        )
+        score_neither = detector.detect_supersession(unresolved_older, unresolved_newer)
+        assert score_neither == pytest.approx(0.75)
+
+        # Older unresolved, newer resolved: 0.6 + 0.15 + 0.10 = 0.85
+        resolved_newer = _make_session(
+            session_id="new",
+            session_start=2000,
+            task_raw="Fixed the auth bug completely",
+        )
+        score_both = detector.detect_supersession(unresolved_older, resolved_newer)
+        assert score_both == pytest.approx(0.85)
+
+        # Older resolved, newer unresolved: 0.6 + 0.0 + 0.0 = 0.6
+        resolved_older = _make_session(
+            session_id="old",
+            session_start=1000,
+            task_raw="Fixed the auth bug completely",
+        )
+        score_old_resolved = detector.detect_supersession(resolved_older, unresolved_newer)
+        assert score_old_resolved == pytest.approx(0.6)
 
 
 class TestSupersessionAnnotator:

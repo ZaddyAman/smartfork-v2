@@ -481,7 +481,7 @@
         "ruff clean on supersession.py"
       ],
       "priority": 21,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-022",

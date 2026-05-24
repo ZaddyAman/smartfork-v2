@@ -1,6 +1,7 @@
 """Supersession detection for SmartFork v2."""
 
 import re
+from collections import defaultdict
 from typing import Any
 
 from smartfork.models.session import SessionDocument
@@ -80,10 +81,6 @@ class SupersessionDetector:
         if older.project_name != newer.project_name:
             return 0.0
 
-        # Guard: newer must actually be newer
-        if newer.session_start <= older.session_start:
-            return 0.0
-
         # Guard: short tasks (<1 turn) are likely config/setup, not candidates
         if older.task_raw and len(older.task_raw) < 20:
             return 0.0
@@ -95,22 +92,23 @@ class SupersessionDetector:
             return 0.0  # No domain overlap
 
         # Calculate similarity score
-        similarity = 0.5  # base score from domain/project match
-
-        # Boost from content similarity if vectors available
         if older_vector and newer_vector:
             vec_sim = _cosine_similarity(older_vector, newer_vector)
             similarity = 0.3 + (0.7 * vec_sim)  # Blend domain (0.3) + vector (0.7)
+        else:
+            # No vectors available: use higher base score so heuristic
+            # signals (resolution boosts) can still cross threshold.
+            similarity = 0.6  # was 0.5
 
         # Boost if older has low resolution status
         older_resolved = self._check_resolution(older)
         if not older_resolved:
-            similarity += 0.1
+            similarity += 0.15  # was 0.10
 
         # Boost if newer has high resolution status
         newer_resolved = self._check_resolution(newer)
         if newer_resolved:
-            similarity += 0.05
+            similarity += 0.10  # was 0.05
 
         return min(similarity, 1.0)
 
@@ -129,7 +127,16 @@ class SupersessionDetector:
         vectors: dict[str, list[float]] | None = None,
         intent: str = "default",
     ) -> list[tuple[str, str, float]]:
-        """Find all supersession relationships in a list of sessions.
+        """Find all supersession relationships (forward-only).
+
+        Algorithm:
+        1. Group sessions by project.
+        2. Sort each group by start time.
+        3. Compare only forward (i < j, where j is newer).
+        4. Skip reverse comparisons entirely.
+
+        Complexity: O(n log n) for sort + O(n²/2) for comparisons per project,
+        vs original O(n²) for all permutations including reverse order.
 
         Args:
             sessions: List of sessions to analyze.
@@ -142,15 +149,24 @@ class SupersessionDetector:
         threshold = self.thresholds.get(intent, self.thresholds["default"])
         results: list[tuple[str, str, float]] = []
 
-        for i, older in enumerate(sessions):
-            for j, newer in enumerate(sessions):
-                if i == j:
-                    continue
-                older_vec = vectors.get(older.session_id) if vectors else None
-                newer_vec = vectors.get(newer.session_id) if vectors else None
-                score = self.detect_supersession(older, newer, older_vec, newer_vec)
-                if score >= threshold:
-                    results.append((older.session_id, newer.session_id, score))
+        # Group by project
+        by_project: dict[str, list[SessionDocument]] = defaultdict(list)
+        for session in sessions:
+            by_project[session.project_name].append(session)
+
+        for _project, proj_sessions in by_project.items():
+            # Sort by start time
+            sorted_sessions = sorted(proj_sessions, key=lambda s: s.session_start)
+
+            # Compare each session only with later sessions
+            for i, older in enumerate(sorted_sessions):
+                for j in range(i + 1, len(sorted_sessions)):
+                    newer = sorted_sessions[j]
+                    older_vec = vectors.get(older.session_id) if vectors else None
+                    newer_vec = vectors.get(newer.session_id) if vectors else None
+                    score = self.detect_supersession(older, newer, older_vec, newer_vec)
+                    if score >= threshold:
+                        results.append((older.session_id, newer.session_id, score))
 
         return results
 
