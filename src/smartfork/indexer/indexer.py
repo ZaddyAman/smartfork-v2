@@ -8,11 +8,11 @@ from typing import Any
 from loguru import logger
 
 from smartfork.adapters.registry import get_adapter
-from smartfork.indexer.chunker import MessageBoundaryChunker
 from smartfork.indexer.embedder import EmbeddingPipeline
 from smartfork.indexer.intelligence import IndexIntelligence
 from smartfork.indexer.metadata_store import MetadataStore
 from smartfork.indexer.parser import SessionParser
+from smartfork.indexer.relationship_detector import RelationshipDetector
 from smartfork.indexer.scanner import SessionScanner
 from smartfork.models.progress import ProgressEvent
 from smartfork.models.session import RawSessionData, SessionDocument
@@ -21,7 +21,7 @@ from smartfork.models.session import RawSessionData, SessionDocument
 class FullIndexer:
     """Orchestrates the complete indexing pipeline.
 
-    Flow: scan → parse → chunk → embed → store → enrich
+    Flow: scan → parse → embed → store → enrich → detect relationships
     """
 
     def __init__(
@@ -30,13 +30,12 @@ class FullIndexer:
         store: MetadataStore | None = None,
         intelligence: IndexIntelligence | None = None,
         parser: SessionParser | None = None,
-        chunker: MessageBoundaryChunker | None = None,
     ) -> None:
         self.embedder = embedder
         self.store = store or MetadataStore()
         self.intelligence = intelligence or IndexIntelligence()
         self.parser = parser or SessionParser()
-        self.chunker = chunker or MessageBoundaryChunker()
+        self.relationship_detector = RelationshipDetector()
 
     def index_all(
         self,
@@ -59,6 +58,7 @@ class FullIndexer:
             "chunked": 0,
             "stored": 0,
             "enriched": 0,
+            "relationships": 0,
             "errors": 0,
         }
 
@@ -185,8 +185,9 @@ class FullIndexer:
                 stats["errors"] += 1
                 parse_i += 1
 
-        # ── 3. Chunk, embed, store, and enrich each parsed session ──
+        # ── 3. Embed, enrich, and store each parsed session ──
         total = len(parsed_sessions)
+        session_vectors: dict[str, list[float]] = {}
 
         # Fire transition event immediately so display switches from parse to index
         if progress_callback and total > 0:
@@ -206,6 +207,7 @@ class FullIndexer:
                 if self.embedder:
                     vector = self.embedder.embed_session(doc)
                     if vector is not None:
+                        session_vectors[doc.session_id] = vector
                         stats["stored"] += 1
 
                 # Set indexed_at timestamp
@@ -251,11 +253,41 @@ class FullIndexer:
                         stats=stats,
                     ))
 
+        # ── 4. Detect relationships per project ──
+        if parsed_sessions and self.store:
+            if progress_callback:
+                progress_callback(ProgressEvent(
+                    phase="detecting relationships",
+                    stats=stats,
+                ))
+
+            by_project: dict[str, list[SessionDocument]] = {}
+            for _, doc in parsed_sessions:
+                by_project.setdefault(doc.project_name, []).append(doc)
+
+            total_rels = 0
+            for _project_name, project_sessions in by_project.items():
+                rels = self.relationship_detector.detect_all(
+                    project_sessions, session_vectors
+                )
+                for rel in rels:
+                    self.store.add_relationship(rel)
+                    total_rels += 1
+
+            stats["relationships"] = total_rels
+
+            if progress_callback:
+                progress_callback(ProgressEvent(
+                    phase="detecting relationships",
+                    stats=stats,
+                ))
+
         elapsed = time.time() - start_time
         stats["elapsed_seconds"] = round(elapsed, 1)
         logger.info(
             f"Indexing complete: {stats['parsed']} parsed, "
             f"{stats['stored']} vectors stored, "
+            f"{stats['relationships']} relationships detected, "
             f"{stats['errors']} errors in {elapsed:.1f}s"
         )
         return stats
@@ -284,6 +316,7 @@ class FullIndexer:
             "chunked": 0,
             "stored": 0,
             "enriched": 0,
+            "relationships": 0,
             "errors": 0,
         }
 
@@ -333,6 +366,9 @@ class FullIndexer:
                 phase="indexing", session_current=0, session_total=0, stats=stats,
             ))
 
+        incremental_docs: list[SessionDocument] = []
+        incremental_vectors: dict[str, list[float]] = {}
+
         for i, (agent_id, raw) in enumerate(new_session_data):
             try:
                 # ── Parse ──
@@ -357,6 +393,7 @@ class FullIndexer:
                 if self.embedder:
                     vector = self.embedder.embed_session(doc)
                     if vector is not None:
+                        incremental_vectors[doc.session_id] = vector
                         stats["stored"] += 1
 
                 # ── Enrich ──
@@ -377,6 +414,7 @@ class FullIndexer:
 
                 # ── Store ──
                 self.store.upsert_session(doc)
+                incremental_docs.append(doc)
 
                 if progress_callback:
                     progress_callback(ProgressEvent(
@@ -390,6 +428,35 @@ class FullIndexer:
             except Exception as e:
                 logger.error(f"Error in incremental indexing {raw.session_id}: {e}")
                 stats["errors"] += 1
+
+        # ── Detect relationships for incremental sessions ──
+        if incremental_docs and self.store:
+            if progress_callback:
+                progress_callback(ProgressEvent(
+                    phase="detecting relationships",
+                    stats=stats,
+                ))
+
+            by_project: dict[str, list[SessionDocument]] = {}
+            for doc in incremental_docs:
+                by_project.setdefault(doc.project_name, []).append(doc)
+
+            total_rels = 0
+            for _project_name, project_sessions in by_project.items():
+                rels = self.relationship_detector.detect_all(
+                    project_sessions, incremental_vectors
+                )
+                for rel in rels:
+                    self.store.add_relationship(rel)
+                    total_rels += 1
+
+            stats["relationships"] = total_rels
+
+            if progress_callback:
+                progress_callback(ProgressEvent(
+                    phase="detecting relationships",
+                    stats=stats,
+                ))
 
         stats["elapsed_seconds"] = round(time.time() - start_time, 1)
         return stats

@@ -539,3 +539,19 @@ Started: $(date)
   - New max scores with vectors: 0.60+0.25+0.15+0.10=1.10 (easily crosses threshold)
   - New max without vectors: 0.60+0.15+0.10=0.85 (just barely crosses threshold — intentional design)
 ---
+
+## 2026-05-24 - US-022
+- Updated FullIndexer to use session-level embedding and added relationship detection phase
+- Files modified: src/smartfork/indexer/indexer.py, tests/indexer/test_indexer.py
+- Removed chunker.chunk() dependency from FullIndexer (no more MessageBoundaryChunker in indexing path)
+- Added RelationshipDetector to FullIndexer.__init__
+- After all sessions stored: runs detect_all(sessions, vectors) per project, stores relationships via store.add_relationship()
+- Progress reporting updated with "detecting relationships" phase
+- Stats include "relationships" count in final summary
+- 7 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - MagicMock dynamically creates attributes, so hasattr(mock, "method_name") always returns True
+  - Use call_count == 0 as a more reliable check than hasattr for mock verification
+  - Variable shadowing in nested loops causes mypy errors — use distinct variable names
+  - The indexer flow is now: scan → parse → embed → store → enrich → detect relationships
+---

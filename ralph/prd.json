@@ -504,7 +504,7 @@
         "ruff clean on indexer.py"
       ],
       "priority": 22,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-023",
