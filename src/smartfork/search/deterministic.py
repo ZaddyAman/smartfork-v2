@@ -232,41 +232,17 @@ class DeterministicSearchEngine:
         return cards
 
     def _vector_search(self, query: str, top_k: int) -> dict[str, float]:
-        """Perform vector similarity search via ChromaDB.
-
-        Embeds the query, queries the ChromaDB collection, and maps
-        chunk results back to session IDs (taking max score per session).
-        """
-        if not self.embedder:
+        """Perform vector similarity search via sqlite-vec."""
+        if not self.embedder or not self.metadata_store:
             return {}
 
         try:
             query_vec = self.embedder.embed_query(query)
-            collection = self.embedder.collection
-            results = collection.query(
-                query_embeddings=[query_vec],
-                n_results=min(top_k * 3, 100),  # fetch extra since we aggregate
-                include=["metadatas", "distances"],
-            )
+            results = self.metadata_store.vector_search(query_vec, limit=top_k * 3)
+            return dict(results)
         except Exception as e:
-            logger.debug(f"ChromaDB query failed: {e}")
+            logger.warning(f"Vector search failed: {e}")
             return {}
-
-        session_scores: dict[str, float] = {}
-        if results and results.get("metadatas") and results.get("distances"):
-            metadatas_list = results["metadatas"][0]
-            distances_list = results["distances"][0]
-            for meta, distance in zip(metadatas_list, distances_list, strict=False):
-                session_id = meta.get("session_id", "")
-                if not session_id:
-                    continue
-                # ChromaDB cosine distance: 0 = identical, 2 = opposite
-                # Convert to similarity: 1 - (distance / 2)
-                similarity = max(0.0, 1.0 - (distance / 2.0))
-                if session_id not in session_scores or similarity > session_scores[session_id]:
-                    session_scores[session_id] = similarity
-
-        return session_scores
 
     def _bm25_search(self, query: str, top_k: int) -> dict[str, float]:
         """Perform BM25 keyword search over session metadata.

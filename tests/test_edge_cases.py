@@ -12,7 +12,6 @@ from typer.testing import CliRunner
 
 from smartfork.cli.commands import app as cli_app
 from smartfork.config import SmartForkConfig
-from smartfork.indexer.embedder import EmbeddingPipeline
 from smartfork.indexer.indexer import FullIndexer
 from smartfork.indexer.intelligence import _extract_summary_fallback, _extract_title_fallback
 from smartfork.indexer.metadata_store import MetadataStore
@@ -115,18 +114,6 @@ class TestGracefulDegradation:
                 OpenAILLM()
             assert "secrets.env" in str(exc_info.value)
 
-    def test_corrupt_chromadb_recovery_message(
-        self, tmp_path: Path, mock_embedder: MagicMock
-    ) -> None:
-        """EDGE-01.3: Corrupt ChromaDB raises a RuntimeError with reset instructions."""
-        corrupt_dir = tmp_path / "corrupt_chroma"
-        corrupt_dir.mkdir()
-        (corrupt_dir / "chroma.sqlite3").write_text("not a sqlite db", encoding="utf-8")
-        pipeline = EmbeddingPipeline(mock_embedder, persist_dir=corrupt_dir)
-        with pytest.raises(RuntimeError) as exc_info:
-            _ = pipeline.collection
-        assert "smartfork index --full" in str(exc_info.value)
-
     def test_corrupt_config_recovery_message(self, tmp_path: Path) -> None:
         """EDGE-01.4: Corrupt config.toml is detected and defaults are used."""
         config_file = tmp_path / "config.toml"
@@ -157,7 +144,11 @@ class TestGracefulDegradation:
             result = cli_runner.invoke(cli_app, ["shell"])
         # The shell command does not exist; Typer returns exit code 2.
         assert result.exit_code == 2
-        assert "Missing command" in result.output or "No such command" in result.output or "Usage:" in result.output
+        assert (
+            "Missing command" in result.output
+            or "No such command" in result.output
+            or "Usage:" in result.output
+        )
 
     def test_lite_mode_flag(self, cli_runner: CliRunner) -> None:
         """EDGE-01.6: --lite flag is accepted and the config field exists."""
@@ -239,7 +230,7 @@ class TestPerformance:
             task_raw="task",
         )
         mock_embedder = MagicMock()
-        mock_embedder.embed_and_store.return_value = 0
+        mock_embedder.embed_session.return_value = [0.1] * 512
         with patch("smartfork.indexer.indexer.get_adapter", return_value=mock_adapter), \
              patch(
                  "smartfork.indexer.scanner.SessionScanner.scan",

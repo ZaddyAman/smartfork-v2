@@ -66,14 +66,13 @@ class TestIndexCommand:
         mock_indexer.index_all.return_value = {
             "scanned": 1,
             "parsed": 1,
-            "chunked": 10,
             "stored": 0,
             "errors": 0,
         }
 
         result = runner.invoke(app, ["index", "--full"])
         assert result.exit_code == 0
-        assert "0 stored as embeddings" in result.output
+        assert "0 vectors stored" in result.output
 
 
 class TestSearchCommand:
@@ -243,6 +242,7 @@ class TestStatusCommand:
             "by_project": {"test": 10},
             "by_quality": {"high": 5, "medium": 5},
         }
+        mock_store.get_vector_count.return_value = 0
 
         result = runner.invoke(app, ["status"])
         assert result.exit_code == 0

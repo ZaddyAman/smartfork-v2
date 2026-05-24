@@ -78,9 +78,7 @@ def index(
         from smartfork.providers import get_embedder
 
         emb = get_embedder(cfg.embedding_provider, cfg.embedding_model, cfg.embedding_dimensions)
-        embedder = EmbeddingPipeline(
-            embedder=emb, persist_dir=cfg.qdrant_db_path, batch_size=cfg.batch_size
-        )
+        embedder = EmbeddingPipeline(embedder=emb, store=store)
     except Exception as e:
         error(f"Embedder not available: {e}")
         info("Search requires embeddings to function. Please fix the issue above and try again.")
@@ -143,14 +141,13 @@ def index(
     low = quality_stats.get("dead_end", 0) + quality_stats.get("unknown", 0)
 
     parsed = stats.get("parsed", 0)
-    chunked = stats.get("chunked", 0)
     stored = stats.get("stored", 0)
     enriched = stats.get("enriched", 0)
     errors = stats.get("errors", 0)
     elapsed = stats.get("elapsed_seconds", 0.0)
 
     throughput_ses = parsed / elapsed if elapsed > 0 else 0.0
-    throughput_chunks = chunked / elapsed if elapsed > 0 else 0.0
+    throughput_vec = stored / elapsed if elapsed > 0 else 0.0
 
     if elapsed < 60:
         elapsed_str = f"{elapsed:.1f}s"
@@ -161,11 +158,11 @@ def index(
 
     summary_rows = [
         ("Sessions parsed", str(parsed)),
-        ("Chunks created", str(chunked)),
-        ("Embeddings stored", str(stored)),
+        ("Sessions embedded", str(stored)),
+        ("Vectors stored", str(stored)),
         ("LLM enriched", str(enriched)),
         ("Errors", str(errors)),
-        ("Throughput", f"{throughput_ses:.1f} ses/s · {throughput_chunks:.1f} chunks/s"),
+        ("Throughput", f"{throughput_ses:.1f} ses/s · {throughput_vec:.1f} vec/s"),
         ("Quality breakdown", quality_minibar(high, medium, low)),
         ("Total time", elapsed_str),
     ]
@@ -175,12 +172,12 @@ def index(
 
     console.print(summary_table)
 
-    chunked = stats.get("chunked", 0)
+    parsed = stats.get("parsed", 0)
     stored = stats.get("stored", 0)
 
-    if stored == 0 and chunked > 0:
+    if stored == 0 and parsed > 0:
         nl()
-        error(f"{chunked} chunks created but 0 stored as embeddings!")
+        error(f"{parsed} sessions parsed but 0 vectors stored!")
         info("Search will return empty results. To enable search:")
         info("[yellow]ollama pull qwen3-embedding:0.6b[/yellow]")
         info("[yellow]smartfork index --full[/yellow]")
@@ -212,7 +209,7 @@ def search(
         from smartfork.providers import get_embedder
 
         emb = get_embedder(cfg.embedding_provider, cfg.embedding_model, cfg.embedding_dimensions)
-        embedder = EmbeddingPipeline(embedder=emb, persist_dir=cfg.qdrant_db_path)
+        embedder = EmbeddingPipeline(embedder=emb, store=store)
     except Exception:
         pass
 
@@ -511,16 +508,10 @@ def status() -> None:
     by_quality: dict[str, int] = stats.get("by_quality", {})
 
     # Check embeddings
-    chunks_count = 0
+    vector_count = 0
     emb_model = "N/A"
     try:
-        from smartfork.indexer.embedder import EmbeddingPipeline
-        from smartfork.providers import get_embedder
-
-        emb = get_embedder(cfg.embedding_provider, cfg.embedding_model, cfg.embedding_dimensions)
-        pipeline = EmbeddingPipeline(embedder=emb, persist_dir=cfg.qdrant_db_path)
-        emb_stats = pipeline.get_collection_stats()
-        chunks_count = emb_stats.get("document_count", 0)
+        vector_count = store.get_vector_count()
         emb_model = cfg.embedding_model
     except Exception:
         pass
@@ -543,7 +534,7 @@ def status() -> None:
     overview_table.add_column(style="bold", min_width=10)
     overview_table.add_column(style=t.accent, min_width=8)
     overview_table.add_row(
-        "Sessions", str(total), "Chunks", str(chunks_count), "Agents", str(len(by_agent))
+        "Sessions", str(total), "Vectors", str(vector_count), "Agents", str(len(by_agent))
     )
     lines.append(overview_table)
 
@@ -617,10 +608,10 @@ def status() -> None:
 
     # Section 4: Embeddings
     lines.append(Text("Embeddings", style=f"bold {t.accent}"))
-    if chunks_count > 0:
-        lines.append(Text(f"{chunks_count} chunks stored · {emb_model}"))
+    if vector_count > 0:
+        lines.append(Text(f"{vector_count} vectors stored · {emb_model}"))
     else:
-        lines.append(Text("N/A (embedder not available)", style=t.warning))
+        lines.append(Text("Vector count unknown (sqlite-vec not available)", style=t.warning))
 
     content = Group(*lines)
     panel = Panel(
@@ -636,9 +627,9 @@ def status() -> None:
     if total == 0:
         nl()
         info("Run [bold]smartfork index --full[/bold] to populate.")
-    elif chunks_count == 0 and total > 0:
+    elif vector_count == 0 and total > 0:
         nl()
-        error("Search disabled! Sessions indexed but no embeddings stored.")
+        error("Search disabled! Sessions indexed but no vectors stored.")
         info("[yellow]ollama pull qwen3-embedding:0.6b[/yellow]")
 
 

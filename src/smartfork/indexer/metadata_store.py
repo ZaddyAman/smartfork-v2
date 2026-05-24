@@ -740,6 +740,23 @@ class MetadataStore:
             except sqlite3.OperationalError as exc:
                 logger.warning(f"delete_vector failed: {exc}")
 
+    def get_vector_count(self) -> int:
+        """Get the number of vectors stored in sqlite-vec.
+
+        Returns:
+            Number of vectors in the session_vectors table, or 0 if unavailable.
+        """
+        if not self._vec_available:
+            return 0
+        with self._get_conn() as conn:
+            try:
+                cursor = conn.execute("SELECT COUNT(*) FROM session_vectors")
+                row = cursor.fetchone()
+                return row[0] if row else 0
+            except sqlite3.OperationalError as exc:
+                logger.warning(f"get_vector_count failed: {exc}")
+                return 0
+
     # --- Stats ---
 
     def get_stats(self) -> dict[str, Any]:

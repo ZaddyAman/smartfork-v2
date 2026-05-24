@@ -462,3 +462,26 @@ Started: $(date)
   - Sections only included when data is present (no empty "Reasoning:" or "Technologies:" lines)
   - __init__.py needs __all__ list for ruff F401 when re-exporting imports
 ---
+
+## 2026-05-24 - US-018
+- Rewrote EmbeddingPipeline to store session-level vectors in sqlite-vec instead of chunk-level in ChromaDB
+- Files rewritten: src/smartfork/indexer/embedder.py (complete rewrite), tests/indexer/test_embedder.py (10 new tests)
+- Files modified: src/smartfork/indexer/indexer.py (removed chunking + embed_and_store, uses embed_session), src/smartfork/search/deterministic.py (_vector_search uses MetadataStore), src/smartfork/cli/commands.py (new constructor, updated labels), src/smartfork/indexer/metadata_store.py (added get_vector_count()), tests/test_edge_cases.py (removed ChromaDB test, updated mocks), tests/cli/test_commands.py (updated assertions)
+- Removed all ChromaDB dependencies: no more chromadb imports, collection, persist_dir, batch_size, _retry_with_backoff, embed_and_store()
+- New API: embed_session(session) -> list[float] | None, embed_sessions_batch(sessions, callback) -> dict, embed_query(query) -> list[float]
+- Constructor: EmbeddingPipeline(embedder, store=None, essence_builder=None) — no more persist_dir/batch_size
+- Auto-fallback: Ollama failure → SentenceTransformerEmbedder("mixedbread-ai/mxbai-embed-large-v1", 1024)
+- Double failure: log error, return None (FTS5 still works)
+- Instruction-aware: detects Ollama via hasattr('_build_prompt'), uses build_essence_with_instruction
+- FullIndexer no longer chunks before embedding — single session embedding per document
+- DeterministicSearchEngine._vector_search uses MetadataStore.vector_search() instead of ChromaDB collection
+- CLI labels updated: "Chunks created" → "Sessions embedded", "Embeddings stored" → "Vectors stored"
+- Status command uses store.get_vector_count() instead of pipeline.get_collection_stats()
+- 72 tests passing (10 embedder + 44 edge/CLI + 18 deterministic), ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Downstream consumers (indexer.py, deterministic.py, commands.py, edge_cases.py) all needed updating due to API change
+  - SentenceTransformerEmbedder must be imported lazily inside embed_session (not at module level) — patching targets must match
+  - KeyboardInterrupt must NOT be caught by except Exception — it must propagate
+  - MetadataStore.get_vector_count() safely returns 0 when sqlite-vec unavailable
+  - The old ChromaDB embed_and_store() was tightly coupled with chunking — removing chunking from the embedding pipeline simplifies the indexer significantly
+---

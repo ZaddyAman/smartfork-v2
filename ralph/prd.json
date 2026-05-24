@@ -412,7 +412,7 @@
         "ruff clean on embedder.py"
       ],
       "priority": 18,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-019",

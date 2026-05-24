@@ -200,42 +200,13 @@ class FullIndexer:
                 stats=stats,
             ))
 
-        # Track consecutive embedder failures to fail fast on DB corruption
-        consecutive_embed_errors = 0
-        max_embed_errors = 3
-
         for i, (agent_id, doc) in enumerate(parsed_sessions):
             try:
-                # Chunk
-                chunks = self.chunker.chunk(doc)
-                stats["chunked"] += len(chunks)
-
-                # Embed and store — pass sub-progress for embedding
+                # Embed session
                 if self.embedder:
-                    _cs = len(chunks)
-
-                    def embed_progress(
-                        current: int,
-                        embed_total: int,
-                        _i: int = i,
-                        _a: str = agent_id,
-                        _cs: int = _cs,
-                    ) -> None:
-                        if progress_callback:
-                            progress_callback(ProgressEvent(
-                                phase="embedding",
-                                session_current=_i + 1,
-                                session_total=total,
-                                agent_id=_a,
-                                chunks=_cs,
-                                embed_current=current,
-                                embed_total=embed_total,
-                                stats=stats,
-                            ))
-
-                    stored = self.embedder.embed_and_store(chunks, progress_callback=embed_progress)
-                    stats["stored"] += stored
-                    consecutive_embed_errors = 0  # Reset on success
+                    vector = self.embedder.embed_session(doc)
+                    if vector is not None:
+                        stats["stored"] += 1
 
                 # Set indexed_at timestamp
                 doc.indexed_at = int(time.time() * 1000)
@@ -265,40 +236,9 @@ class FullIndexer:
                         session_current=i + 1,
                         session_total=total,
                         agent_id=agent_id,
-                        chunks=len(chunks),
                         stats=stats,
                     ))
 
-            except RuntimeError as e:
-                # Vector DB corruption or embedder failure — fail fast
-                consecutive_embed_errors += 1
-                logger.error(f"Embedder error on session {doc.session_id}: {e}")
-                stats["errors"] += 1
-                if consecutive_embed_errors >= max_embed_errors:
-                    logger.error(
-                        f"{consecutive_embed_errors} consecutive embedder failures — "
-                        "vector DB may be corrupted. Aborting index."
-                    )
-                    if progress_callback:
-                        progress_callback(ProgressEvent(
-                            phase="indexing",
-                            session_current=i + 1,
-                            session_total=total,
-                            agent_id=agent_id,
-                            stats=stats,
-                        ))
-                    raise RuntimeError(
-                        f"Vector DB corrupted after {consecutive_embed_errors} consecutive failures. "
-                        f"Details: {e}"
-                    ) from e
-                if progress_callback:
-                    progress_callback(ProgressEvent(
-                        phase="indexing",
-                        session_current=i + 1,
-                        session_total=total,
-                        agent_id=agent_id,
-                        stats=stats,
-                    ))
             except Exception as e:
                 logger.error(f"Error indexing session {doc.session_id}: {e}")
                 stats["errors"] += 1
@@ -315,7 +255,7 @@ class FullIndexer:
         stats["elapsed_seconds"] = round(elapsed, 1)
         logger.info(
             f"Indexing complete: {stats['parsed']} parsed, "
-            f"{stats['stored']} chunks stored, "
+            f"{stats['stored']} vectors stored, "
             f"{stats['errors']} errors in {elapsed:.1f}s"
         )
         return stats
@@ -385,15 +325,13 @@ class FullIndexer:
         )
 
         total_parse = len(new_session_data)
-        
-        if progress_callback and total_parse == 0:
-            # Short circuit: we still need to report parsing/indexing is complete so the UI can close out.
-            progress_callback(ProgressEvent(phase="parsing", current=0, total=0, stats=stats))
-            progress_callback(ProgressEvent(phase="indexing", session_current=0, session_total=0, stats=stats))
 
-        # Track consecutive embedder failures to fail fast on DB corruption
-        consecutive_embed_errors = 0
-        max_embed_errors = 3
+        if progress_callback and total_parse == 0:
+            # Short circuit so UI can close out even with zero items.
+            progress_callback(ProgressEvent(phase="parsing", current=0, total=0, stats=stats))
+            progress_callback(ProgressEvent(
+                phase="indexing", session_current=0, session_total=0, stats=stats,
+            ))
 
         for i, (agent_id, raw) in enumerate(new_session_data):
             try:
@@ -415,36 +353,11 @@ class FullIndexer:
                 stats["parsed"] += 1
                 doc.indexed_at = int(time.time() * 1000)
 
-                # ── Chunk ──
-                chunks = self.chunker.chunk(doc)
-                stats["chunked"] += len(chunks)
-
                 # ── Embed ──
                 if self.embedder:
-                    _cs = len(chunks)
-
-                    def embed_progress(
-                        current: int,
-                        embed_total: int,
-                        _i: int = i,
-                        _a: str = agent_id,
-                        _cs: int = _cs,
-                    ) -> None:
-                        if progress_callback:
-                            progress_callback(ProgressEvent(
-                                phase="embedding",
-                                session_current=_i + 1,
-                                session_total=total_parse,
-                                agent_id=_a,
-                                chunks=_cs,
-                                embed_current=current,
-                                embed_total=embed_total,
-                                stats=stats,
-                            ))
-
-                    stored = self.embedder.embed_and_store(chunks, progress_callback=embed_progress)
-                    stats["stored"] += stored
-                    consecutive_embed_errors = 0  # Reset on success
+                    vector = self.embedder.embed_session(doc)
+                    if vector is not None:
+                        stats["stored"] += 1
 
                 # ── Enrich ──
                 def enrich_progress(
@@ -464,30 +377,16 @@ class FullIndexer:
 
                 # ── Store ──
                 self.store.upsert_session(doc)
-                
+
                 if progress_callback:
                     progress_callback(ProgressEvent(
                         phase="indexing",
                         session_current=i + 1,
                         session_total=total_parse,
                         agent_id=agent_id,
-                        chunks=len(chunks),
                         stats=stats,
                     ))
-                    
-            except RuntimeError as e:
-                consecutive_embed_errors += 1
-                logger.error(f"Embedder error in incremental indexing {raw.session_id}: {e}")
-                stats["errors"] += 1
-                if consecutive_embed_errors >= max_embed_errors:
-                    logger.error(
-                        f"{consecutive_embed_errors} consecutive embedder failures — "
-                        "vector DB may be corrupted. Aborting index."
-                    )
-                    raise RuntimeError(
-                        f"Vector DB corrupted after {consecutive_embed_errors} consecutive failures. "
-                        f"Details: {e}"
-                    ) from e
+
             except Exception as e:
                 logger.error(f"Error in incremental indexing {raw.session_id}: {e}")
                 stats["errors"] += 1
