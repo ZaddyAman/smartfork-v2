@@ -7,6 +7,7 @@ from typing import Any
 from loguru import logger
 
 from smartfork.models.search import QueryDecomposition, ResultCard, SearchIntent
+from smartfork.search.cache import SearchCache
 
 # Intent detection patterns
 INTENT_PATTERNS: dict[SearchIntent, list[str]] = {
@@ -180,10 +181,22 @@ class DeterministicSearchEngine:
     - Multi-signal reranker for final ordering
     """
 
-    def __init__(self, embedder: Any | None = None, metadata_store: Any | None = None) -> None:
+    def __init__(
+        self,
+        embedder: Any | None = None,
+        metadata_store: Any | None = None,
+        cache: SearchCache | None = None,
+        cache_ttl: int = 300,
+    ) -> None:
         self.embedder = embedder
         self.metadata_store = metadata_store
         self.query_parser = QueryParser()
+        self.cache = cache if cache is not None else SearchCache(ttl=cache_ttl)
+        # Wire cache into metadata_store for invalidation on upsert
+        if self.metadata_store is not None and getattr(
+            self.metadata_store, "search_cache", None
+        ) is None:
+            self.metadata_store.search_cache = self.cache
 
     def search(
         self,
@@ -203,6 +216,12 @@ class DeterministicSearchEngine:
         Returns:
             List of ResultCard objects.
         """
+        # Check cache first
+        cached = self.cache.get(query, project_filter, quality_filter, top_k)
+        if cached is not None:
+            logger.debug(f"Cache hit for query: {query}")
+            return cached
+
         decomposition = self.query_parser.parse(query)
 
         # If embedder is available, do vector search
@@ -228,6 +247,9 @@ class DeterministicSearchEngine:
 
         # Format as result cards
         cards = self._format_cards(reranked[:top_k], decomposition)
+
+        # Store in cache
+        self.cache.put(query, cards, project_filter, quality_filter, top_k)
 
         return cards
 

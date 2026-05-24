@@ -120,9 +120,14 @@ class MetadataStore:
     vector search. Uses WAL mode for concurrent read performance.
     """
 
-    def __init__(self, db_path: str | Path = "~/.smartfork/metadata.db") -> None:
+    def __init__(
+        self,
+        db_path: str | Path = "~/.smartfork/metadata.db",
+        search_cache: Any | None = None,
+    ) -> None:
         self.db_path = Path(db_path).expanduser()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self.search_cache = search_cache
         self._vec_available = False
         self._init_db()
         self._ensure_schema()
@@ -378,6 +383,10 @@ class MetadataStore:
                 ),
             )
             conn.commit()
+
+        # Invalidate cache entries containing this session
+        if self.search_cache is not None:
+            self.search_cache.invalidate_session(session.session_id)
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
         """Retrieve a session by ID.

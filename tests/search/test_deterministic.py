@@ -2,7 +2,9 @@
 
 from unittest.mock import MagicMock
 
+from smartfork.indexer.metadata_store import MetadataStore
 from smartfork.models.search import QueryDecomposition, ResultCard, SearchIntent
+from smartfork.models.session import QualityTag, SessionDocument
 from smartfork.search.cache import SearchCache
 from smartfork.search.deterministic import (
     DeterministicSearchEngine,
@@ -375,6 +377,138 @@ class TestDeterministicSearchEngine:
         assert len(result) >= 2
         # 'b' appears in both lists -> higher fused score
         assert result["b"] > result.get("c", 0)
+
+
+class TestDeterministicSearchCache:
+    def test_cache_hit_returns_same_results(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.fts5_search.return_value = [
+            ("s1", -1.0),
+        ]
+        mock_store.get_session.return_value = {
+            "task_raw": "auth bug fix",
+            "summary_doc": "",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": "[]",
+            "project_name": "test",
+        }
+        mock_store._deserialize_list.return_value = []
+        mock_store.get_superseding_sessions.return_value = []
+        mock_store.get_superseded_sessions.return_value = []
+        engine.metadata_store = mock_store
+
+        # First search - should execute query
+        cards1 = engine.search("auth bug")
+        assert len(cards1) == 1
+        assert cards1[0].session_id == "s1"
+
+        # Second search with same query - should be cached
+        cards2 = engine.search("auth bug")
+        assert len(cards2) == 1
+        assert cards2[0].session_id == "s1"
+
+        # FTS5 should only be called once (first search)
+        assert mock_store.fts5_search.call_count == 1
+
+    def test_cache_miss_different_query(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.fts5_search.return_value = [
+            ("s1", -1.0),
+        ]
+        mock_store.get_session.return_value = {
+            "task_raw": "auth bug fix",
+            "summary_doc": "",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": "[]",
+            "project_name": "test",
+        }
+        mock_store._deserialize_list.return_value = []
+        mock_store.get_superseding_sessions.return_value = []
+        mock_store.get_superseded_sessions.return_value = []
+        engine.metadata_store = mock_store
+
+        engine.search("auth bug")
+        engine.search("different query")
+
+        # FTS5 should be called twice (different queries)
+        assert mock_store.fts5_search.call_count == 2
+
+    def test_cache_respects_ttl(self) -> None:
+        from smartfork.search.cache import SearchCache
+
+        cache = SearchCache(ttl=-1)  # Immediate expiry
+        engine = DeterministicSearchEngine(cache=cache)
+        mock_store = MagicMock()
+        mock_store.fts5_search.return_value = [
+            ("s1", -1.0),
+        ]
+        mock_store.get_session.return_value = {
+            "task_raw": "auth bug fix",
+            "summary_doc": "",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": "[]",
+            "project_name": "test",
+        }
+        mock_store._deserialize_list.return_value = []
+        mock_store.get_superseding_sessions.return_value = []
+        mock_store.get_superseded_sessions.return_value = []
+        engine.metadata_store = mock_store
+
+        # First search
+        cards1 = engine.search("auth bug")
+        assert len(cards1) == 1
+
+        # Second search - cache should be expired, so it queries again
+        cards2 = engine.search("auth bug")
+        assert len(cards2) == 1
+
+        # FTS5 should be called twice because cache expired immediately
+        assert mock_store.fts5_search.call_count == 2
+
+    def test_cache_invalidation_via_metadata_store(self, tmp_path) -> None:
+        cache = SearchCache()
+        db_path = tmp_path / "test.db"
+        store = MetadataStore(db_path=db_path, search_cache=cache)
+
+        # Create an engine wired to the store
+        engine = DeterministicSearchEngine(
+            metadata_store=store, cache=cache
+        )
+
+        # Set up a session via upsert so FTS5 trigger populates index
+        session = SessionDocument(
+            session_id="s1",
+            agent="agent1",
+            project_name="test",
+            project_root="/tmp/test",
+            task_raw="auth bug fix",
+            summary_doc="",
+            quality_tag=QualityTag("unknown"),
+            indexed_at=0,
+        )
+        store.upsert_session(session)
+
+        # Search and cache result
+        cards1 = engine.search("auth bug")
+        assert len(cards1) == 1
+        assert cards1[0].session_id == "s1"
+
+        # Verify cache hit
+        cards2 = engine.search("auth bug")
+        assert len(cards2) == 1
+
+        # Now upsert the same session - this should invalidate cache
+        session.task_raw = "updated task"
+        store.upsert_session(session)
+
+        # Cache should be invalidated - next search should re-query
+        # For this test, the key point is that cache is invalidated.
+        assert cache.get("auth bug") is None
 
 
 class TestSearchCache:

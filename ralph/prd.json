@@ -741,7 +741,7 @@
         "ruff clean on cache.py and deterministic.py"
       ],
       "priority": 32,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-033",
