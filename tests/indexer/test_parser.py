@@ -374,6 +374,25 @@ class TestSessionParser:
         parser = SessionParser()
         assert parser.parse_session(None) is None  # type: ignore[arg-type]
 
+    def test_parser_preserves_parent_id(self) -> None:
+        raw = RawSessionData(
+            session_id="test-sess-1",
+            agent_id="opencode",
+            session_path=Path("/tmp/test"),
+            turns=[
+                RawTurn(role="user", content="hello", timestamp=1000),
+            ],
+            workspace_dir="/home/dev/project",
+            task_raw="test task",
+            parent_id="parent_001",
+            previous_session_id="prev_001",
+        )
+        parser = SessionParser()
+        doc = parser.parse_session(raw)
+        assert doc is not None
+        assert doc.parent_id == "parent_001"
+        assert doc.previous_session_id == "prev_001"
+
     def test_parse_session_empty_files(self) -> None:
         raw = RawSessionData(
             session_id="empty-1",

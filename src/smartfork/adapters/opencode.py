@@ -3,7 +3,6 @@
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 
@@ -101,6 +100,7 @@ class OpenCodeAdapter(SessionAdapter):
                 time_created = row["time_created"] or 0
                 time_updated = row["time_updated"] or 0
                 model_used = row["model"] or "opencode"
+                parent_id = row["parent_id"] or None
 
                 turns: list[RawTurn] = []
                 files_edited: list[str] = []
@@ -170,6 +170,7 @@ class OpenCodeAdapter(SessionAdapter):
                             session_end=time_updated,
                             edit_count=len(set(files_edited)),
                             user_edit_count=0,
+                            parent_id=parent_id,
                         )
                     )
 

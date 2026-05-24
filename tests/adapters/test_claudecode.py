@@ -10,6 +10,7 @@ from smartfork.adapters.claudecode import (
     scan_claude_sessions,
 )
 from smartfork.adapters.registry import clear_registry, get_adapter
+from smartfork.indexer.parser import SessionParser
 
 FIXTURE_FILE = Path(__file__).parent.parent / "fixtures" / "claudecode_session.jsonl"
 
@@ -145,3 +146,16 @@ class TestClaudeCodeAdapter:
     def test_scan_claude_sessions_empty_dir(self, tmp_path: Path) -> None:
         result = scan_claude_sessions(tmp_path)
         assert result == []
+
+    def test_claudecode_session_parent_id_is_none(self) -> None:
+        adapter = get_adapter("claudecode")
+        assert adapter is not None
+        raw = adapter.parse_raw(FIXTURE_FILE)
+        assert raw is not None
+        assert raw.parent_id is None
+        assert raw.previous_session_id is None
+        parser = SessionParser()
+        doc = parser.parse_session(raw)
+        assert doc is not None
+        assert doc.parent_id is None
+        assert doc.previous_session_id is None

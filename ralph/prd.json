@@ -367,7 +367,7 @@
         "ruff clean on opencode.py and parser.py"
       ],
       "priority": 16,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-017",

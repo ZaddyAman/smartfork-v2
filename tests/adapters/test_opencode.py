@@ -9,6 +9,7 @@ from smartfork.adapters.opencode import (
     get_default_opencode_db_path,
 )
 from smartfork.adapters.registry import clear_registry, get_adapter
+from smartfork.indexer.parser import SessionParser
 
 
 def _create_test_db(db_path: Path) -> None:
@@ -126,6 +127,65 @@ def _create_test_db(db_path: Path) -> None:
     conn.close()
 
 
+def _create_test_db_with_parent(db_path: Path, parent_id: str | None) -> None:
+    """Create a minimal OpenCode SQLite database with a session that has parent_id."""
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE session (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            parent_id TEXT,
+            slug TEXT,
+            directory TEXT,
+            title TEXT,
+            version TEXT,
+            time_created INTEGER,
+            time_updated INTEGER,
+            agent TEXT,
+            model TEXT
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE message (
+            id TEXT PRIMARY KEY,
+            session_id TEXT,
+            role TEXT,
+            time_created INTEGER,
+            data TEXT,
+            FOREIGN KEY (session_id) REFERENCES session(id)
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE part (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id TEXT,
+            type TEXT,
+            content TEXT,
+            time_created INTEGER,
+            data TEXT,
+            FOREIGN KEY (message_id) REFERENCES message(id)
+        )
+    """)
+
+    conn.execute(
+        "INSERT INTO session (id, parent_id, directory, title, time_created, time_updated, model) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("sess-parent", parent_id, "/home/dev/project", "Test task", 1700000100000, 1700000100000, "claude-sonnet-4"),
+    )
+
+    conn.execute(
+        "INSERT INTO message (id, session_id, role, time_created, data) VALUES (?, ?, ?, ?, ?)",
+        ("msg-1", "sess-parent", "user", 1700000001000, json.dumps({"role": "user"}))
+    )
+
+    conn.execute(
+        "INSERT INTO part (message_id, type, time_created, data) VALUES (?, ?, ?, ?)",
+        ("msg-1", "text", 1700000001000, json.dumps({"type": "text", "text": "Hello"}))
+    )
+
+    conn.commit()
+    conn.close()
+
+
 class TestOpenCodeModuleHelpers:
     def test_get_default_path(self) -> None:
         path = get_default_opencode_db_path()
@@ -230,3 +290,29 @@ class TestOpenCodeAdapter:
         adapter = get_adapter("opencode")
         assert adapter is not None
         assert adapter.session_type == "sqlite"
+
+    def test_session_with_parent_id(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        _create_test_db_with_parent(db_path, parent_id="sess_001")
+        adapter = get_adapter("opencode")
+        assert adapter is not None
+        raw = adapter.parse_raw(db_path)
+        assert raw is not None
+        assert raw.parent_id == "sess_001"
+        parser = SessionParser()
+        doc = parser.parse_session(raw)
+        assert doc is not None
+        assert doc.parent_id == "sess_001"
+
+    def test_session_without_parent_id(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        _create_test_db_with_parent(db_path, parent_id=None)
+        adapter = get_adapter("opencode")
+        assert adapter is not None
+        raw = adapter.parse_raw(db_path)
+        assert raw is not None
+        assert raw.parent_id is None
+        parser = SessionParser()
+        doc = parser.parse_session(raw)
+        assert doc is not None
+        assert doc.parent_id is None

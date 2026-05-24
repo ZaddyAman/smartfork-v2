@@ -11,6 +11,7 @@ from smartfork.adapters.kilocode import (
     _resolve_ide_path,
 )
 from smartfork.adapters.registry import clear_registry, get_adapter
+from smartfork.indexer.parser import SessionParser
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "kilocode_session"
 
@@ -222,3 +223,16 @@ class TestKiloCodeAdapter:
         assert "Cursor" in choices
         assert "VS Code" in choices
         assert "AntiGravity" in choices
+
+    def test_kilocode_session_parent_id_is_none(self) -> None:
+        adapter = get_adapter("kilocode")
+        assert adapter is not None
+        raw = adapter.parse_raw(FIXTURES_DIR)
+        assert raw is not None
+        assert raw.parent_id is None
+        assert raw.previous_session_id is None
+        parser = SessionParser()
+        doc = parser.parse_session(raw)
+        assert doc is not None
+        assert doc.parent_id is None
+        assert doc.previous_session_id is None

@@ -431,3 +431,17 @@ Started: $(date)
   - Existing supersession_links CRUD must be preserved for backward compatibility — the new session_relationships table coexists
   - Migration must handle pre-v3 DBs (missing reasoning_docs) gracefully since _ensure_schema previously only migrated v2→v3
 ---
+
+## 2026-05-24 - US-016
+- Fixed OpenCode adapter to preserve parent_id from SQLite session table through to SessionDocument
+- Files modified: src/smartfork/adapters/opencode.py, src/smartfork/indexer/parser.py
+- Files modified: tests/adapters/test_opencode.py (2 new tests), tests/indexer/test_parser.py (1 new test), tests/adapters/test_kilocode.py (1 regression test), tests/adapters/test_claudecode.py (1 regression test)
+- OpenCode adapter now reads row["parent_id"] from SQLite query and passes to RawSessionData constructor
+- SessionParser.parse_session() copies raw.parent_id and raw.previous_session_id to SessionDocument
+- Removed unused typing.Any import from opencode.py and fixed import sorting
+- 97 tests passing (all adapter + parser tests), ruff clean, mypy on parser.py clean
+- **Learnings for future iterations:**
+  - The OpenCode SQLite query already SELECTed parent_id — it was just never read from the row or passed downstream
+  - KiloCode and ClaudeCode adapters don't have parent_id in their data formats, so they correctly default to None
+  - 4 pre-existing mypy errors in opencode.py (helper functions) remain — not caused by this change
+---

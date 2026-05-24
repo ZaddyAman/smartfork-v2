@@ -477,6 +477,8 @@ class SessionParser:
             propositions=[],
             quality_tag=QualityTag.UNKNOWN,
             tech_tags=[],
+            parent_id=raw.parent_id,
+            previous_session_id=raw.previous_session_id,
             indexed_at=0,
             schema_version=4,
         )
