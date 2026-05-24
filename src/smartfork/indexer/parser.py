@@ -478,5 +478,5 @@ class SessionParser:
             quality_tag=QualityTag.UNKNOWN,
             tech_tags=[],
             indexed_at=0,
-            schema_version=3,
+            schema_version=4,
         )

@@ -114,4 +114,4 @@ class SessionDocument:
 
     # Index metadata
     indexed_at: int = 0  # ms
-    schema_version: int = 3
+    schema_version: int = 4

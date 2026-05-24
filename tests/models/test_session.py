@@ -120,7 +120,7 @@ class TestSessionDocument:
             project_root="/tmp",
         )
         assert doc.quality_tag == QualityTag.UNKNOWN
-        assert doc.schema_version == 3
+        assert doc.schema_version == 4
         assert doc.tech_tags == []
         assert doc.domains == []
         assert doc.duration_minutes == 0.0

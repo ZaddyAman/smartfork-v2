@@ -297,7 +297,7 @@ class TestSessionParser:
         assert "database" in doc.domains
         assert "python" in doc.languages
         assert len(doc.reasoning_docs) > 0
-        assert doc.schema_version == 3
+        assert doc.schema_version == 4
         assert doc.quality_tag == QualityTag.UNKNOWN
 
     def test_parse_session_infers_all_fields(self) -> None:

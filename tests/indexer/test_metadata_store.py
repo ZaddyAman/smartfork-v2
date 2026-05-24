@@ -1,10 +1,12 @@
 """Tests for MetadataStore."""
 
+import sqlite3
 from pathlib import Path
 
 import pytest
 
 from smartfork.indexer.metadata_store import MetadataStore
+from smartfork.models.relationship import SessionRelationship
 from smartfork.models.session import QualityTag, SessionDocument
 
 
@@ -194,3 +196,268 @@ class TestMetadataStore:
         docs = store.get_all_session_documents(agent="kilocode")
         assert len(docs) == 1
         assert docs[0].session_id == "s1"
+
+
+# Module-level fixture for new test classes
+@pytest.fixture
+def store(tmp_path: Path) -> MetadataStore:
+    return MetadataStore(tmp_path / "test_metadata.db")
+
+
+def _make_vector(value: float, dim: int = 1024) -> list[float]:
+    vec = [0.0] * dim
+    vec[0] = value
+    return vec
+
+
+class TestRelationships:
+    def test_add_and_get_relationship(self, store: MetadataStore) -> None:
+        store.upsert_session(_make_session(session_id="s1"))
+        store.upsert_session(_make_session(session_id="s2"))
+
+        rel = SessionRelationship(
+            from_session="s1",
+            to_session="s2",
+            relationship_type="continuation",
+            confidence=0.85,
+            detected_by="heuristic",
+            reasons=["file overlap", "temporal proximity"],
+            created_at=1700000000000,
+        )
+        store.add_relationship(rel)
+
+        results = store.get_relationships("s1", direction="from")
+        assert len(results) == 1
+        assert results[0].from_session == "s1"
+        assert results[0].to_session == "s2"
+        assert results[0].relationship_type == "continuation"
+        assert results[0].confidence == 0.85
+        assert results[0].reasons == ["file overlap", "temporal proximity"]
+
+    def test_get_relationships_by_type(self, store: MetadataStore) -> None:
+        store.upsert_session(_make_session(session_id="s1"))
+        store.upsert_session(_make_session(session_id="s2"))
+        store.upsert_session(_make_session(session_id="s3"))
+
+        store.add_relationship(
+            SessionRelationship(
+                from_session="s1",
+                to_session="s2",
+                relationship_type="continuation",
+                confidence=0.8,
+                detected_by="heuristic",
+                reasons=["overlap"],
+            )
+        )
+        store.add_relationship(
+            SessionRelationship(
+                from_session="s1",
+                to_session="s3",
+                relationship_type="related",
+                confidence=0.6,
+                detected_by="heuristic",
+                reasons=["similar domain"],
+            )
+        )
+
+        conts = store.get_relationships_by_type("s1", "continuation", direction="from")
+        assert len(conts) == 1
+        assert conts[0].to_session == "s2"
+
+        related = store.get_relationships_by_type("s1", "related", direction="from")
+        assert len(related) == 1
+        assert related[0].to_session == "s3"
+
+    def test_get_relationships_direction(self, store: MetadataStore) -> None:
+        store.upsert_session(_make_session(session_id="s1"))
+        store.upsert_session(_make_session(session_id="s2"))
+        store.upsert_session(_make_session(session_id="s3"))
+
+        store.add_relationship(
+            SessionRelationship(
+                from_session="s1",
+                to_session="s2",
+                relationship_type="continuation",
+                confidence=0.8,
+                detected_by="heuristic",
+                reasons=[],
+            )
+        )
+        store.add_relationship(
+            SessionRelationship(
+                from_session="s3",
+                to_session="s1",
+                relationship_type="supersession",
+                confidence=0.9,
+                detected_by="heuristic",
+                reasons=[],
+            )
+        )
+
+        from_rels = store.get_relationships("s1", direction="from")
+        assert len(from_rels) == 1
+        assert from_rels[0].to_session == "s2"
+
+        to_rels = store.get_relationships("s1", direction="to")
+        assert len(to_rels) == 1
+        assert to_rels[0].from_session == "s3"
+
+        both_rels = store.get_relationships("s1", direction="both")
+        assert len(both_rels) == 2
+
+    def test_delete_relationships_for_session(self, store: MetadataStore) -> None:
+        store.upsert_session(_make_session(session_id="s1"))
+        store.upsert_session(_make_session(session_id="s2"))
+        store.upsert_session(_make_session(session_id="s3"))
+
+        store.add_relationship(
+            SessionRelationship(
+                from_session="s1",
+                to_session="s2",
+                relationship_type="continuation",
+                confidence=0.8,
+                detected_by="heuristic",
+                reasons=[],
+            )
+        )
+        store.add_relationship(
+            SessionRelationship(
+                from_session="s3",
+                to_session="s1",
+                relationship_type="related",
+                confidence=0.5,
+                detected_by="heuristic",
+                reasons=[],
+            )
+        )
+
+        count = store.delete_relationships_for_session("s1")
+        assert count == 2
+
+        assert store.get_relationships("s1", direction="both") == []
+
+    def test_relationships_are_sessions(self, store: MetadataStore) -> None:
+        rel = SessionRelationship(
+            from_session="nonexistent",
+            to_session="also-nonexistent",
+            relationship_type="related",
+            confidence=0.5,
+            detected_by="heuristic",
+            reasons=["test"],
+        )
+        with pytest.raises(sqlite3.IntegrityError):
+            store.add_relationship(rel)
+
+
+class TestFTS5Search:
+    def test_fts5_search_basic(self, store: MetadataStore) -> None:
+        store.upsert_session(_make_session(session_id="s1", task_raw="hello world test"))
+        store.upsert_session(_make_session(session_id="s2", task_raw="something else entirely"))
+
+        results = store.fts5_search("hello")
+        assert len(results) == 1
+        assert results[0][0] == "s1"
+
+    def test_fts5_search_relevance(self, store: MetadataStore) -> None:
+        store.upsert_session(
+            _make_session(session_id="s1", task_raw="hello world test foo bar baz")
+        )
+        store.upsert_session(_make_session(session_id="s2", task_raw="hello world"))
+        store.upsert_session(
+            _make_session(session_id="s3", task_raw="completely unrelated")
+        )
+
+        results = store.fts5_search("hello world")
+        assert len(results) == 2
+        ids = {r[0] for r in results}
+        assert ids == {"s1", "s2"}
+
+    def test_fts5_search_empty_db(self, store: MetadataStore) -> None:
+        results = store.fts5_search("test")
+        assert results == []
+
+    def test_fts5_syncs_on_update(self, store: MetadataStore) -> None:
+        store.upsert_session(_make_session(session_id="s1", task_raw="old text here"))
+
+        results = store.fts5_search("old")
+        assert len(results) == 1
+        assert results[0][0] == "s1"
+
+        store.upsert_session(_make_session(session_id="s1", task_raw="new text here"))
+
+        results = store.fts5_search("new")
+        assert len(results) == 1
+        assert results[0][0] == "s1"
+
+        results = store.fts5_search("old")
+        assert results == []
+
+
+SQLITE_VEC_AVAILABLE = False
+
+
+def _sqlite_vec_available() -> bool:
+    try:
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            "CREATE VIRTUAL TABLE test USING vec0(id text primary key, v float[1])"
+        )
+        conn.close()
+        return True
+    except sqlite3.OperationalError:
+        return False
+
+
+SQLITE_VEC_AVAILABLE = _sqlite_vec_available()
+
+
+class TestVectorStore:
+    @pytest.mark.skipif(
+        not SQLITE_VEC_AVAILABLE,
+        reason="sqlite-vec extension not available",
+    )
+    def test_store_and_get_vector(self, store: MetadataStore) -> None:
+        vec = _make_vector(1.0)
+        store.store_vector("s1", vec)
+        result = store.get_vector("s1")
+        assert result is not None
+        assert len(result) == 1024
+        assert result[0] == 1.0
+        assert result[1] == 0.0
+
+    @pytest.mark.skipif(
+        not SQLITE_VEC_AVAILABLE,
+        reason="sqlite-vec extension not available",
+    )
+    def test_get_vector_nonexistent(self, store: MetadataStore) -> None:
+        assert store.get_vector("nonexistent") is None
+
+    @pytest.mark.skipif(
+        not SQLITE_VEC_AVAILABLE,
+        reason="sqlite-vec extension not available",
+    )
+    def test_vector_search(self, store: MetadataStore) -> None:
+        store.store_vector("s1", _make_vector(1.0))
+        store.store_vector("s2", _make_vector(0.9))
+        store.store_vector("s3", _make_vector(0.1))
+
+        results = store.vector_search(_make_vector(1.0), limit=2)
+        assert len(results) == 2
+        ids = [r[0] for r in results]
+        assert "s1" in ids
+        assert "s2" in ids
+        # s1 should be more similar than s2
+        s1_score = next(r[1] for r in results if r[0] == "s1")
+        s2_score = next(r[1] for r in results if r[0] == "s2")
+        assert s1_score >= s2_score
+
+    @pytest.mark.skipif(
+        not SQLITE_VEC_AVAILABLE,
+        reason="sqlite-vec extension not available",
+    )
+    def test_delete_vector(self, store: MetadataStore) -> None:
+        store.store_vector("s1", _make_vector(1.0))
+        assert store.get_vector("s1") is not None
+
+        store.delete_vector("s1")
+        assert store.get_vector("s1") is None

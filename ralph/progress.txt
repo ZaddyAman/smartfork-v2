@@ -407,3 +407,27 @@ Started: $(date)
   - The full test suite has pre-existing issues (hanging MCP tests, ruff/mypy issues in theme.py, opencode.py, mcp/server.py) that are tracked for later cleanup (US-030/031)
   - Pre-existing CLI test failures fixed: patch target was OllamaLLM but CLI imports get_llm; changed to patch get_llm directly
 ---
+
+## 2026-05-24 - US-015
+- Defined complete SQLite schema v4 with FTS5, sqlite-vec, and session_relationships tables
+- Files modified: src/smartfork/indexer/metadata_store.py (major rewrite), src/smartfork/indexer/parser.py, src/smartfork/models/session.py
+- Files created: tests/indexer/test_schema_migration.py
+- Files modified: tests/indexer/test_metadata_store.py (13 new tests), tests/indexer/test_parser.py, tests/models/test_session.py
+- SCHEMA_SQL now includes sessions (v4), session_relationships (PK + FKs + indexes), supersession_links (deprecated, kept), sessions_fts (FTS5 standalone with porter unicode61 tokenizer), session_vectors (vec0)
+- FTS5 triggers auto-sync on INSERT/UPDATE/DELETE of sessions table
+- _ensure_schema() uses PRAGMA user_version to detect v3→v4 migration
+- _migrate_to_v4() handles: reasoning_docs fix (pre-v3), relationship table creation, supersession_links→session_relationships migration, FTS5 creation+population, trigger creation, vec0 creation (optional - graceful if sqlite-vec unavailable)
+- WAL mode and foreign_keys PRAGMAs already existed — untouched
+- New MetadataStore methods: add_relationship(), get_relationships() (direction: from/to/both), get_relationships_by_type(), delete_relationships_for_session(), _row_to_relationship()
+- New search: fts5_search() returns list[(session_id, bm25_score)]
+- New vector ops: store_vector(), get_vector(), vector_search(), delete_vector() — all gracefully degrade when sqlite-vec unavailable
+- Bumped schema_version from 3→4 in SessionDocument and parser.py
+- 79 tests passing (4 skipped - vector tests need sqlite-vec installation), ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - FTS5 with content='sessions' requires ALL indexed columns in the content table; standalone FTS5 with manual triggers is more reliable and avoids schema coupling
+  - PRAGMA user_version must be explicitly SET after migration; fresh DBs without migration start at 0
+  - sqlite-vec vec0 table creation may fail if the extension is not loaded — wrap in try/except and log warning
+  - INSERT OR IGNORE (not bare INSERT) in migration FTS5 population enables idempotent re-runs
+  - Existing supersession_links CRUD must be preserved for backward compatibility — the new session_relationships table coexists
+  - Migration must handle pre-v3 DBs (missing reasoning_docs) gracefully since _ensure_schema previously only migrated v2→v3
+---
