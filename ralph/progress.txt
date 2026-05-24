@@ -2,6 +2,23 @@
 Started: $(date)
 ---
 
+## STATUS: COMPLETE — All 34 stories implemented (2026-05-24)
+
+| Phase | Stories | Status |
+|-------|---------|--------|
+| Foundation (US-014/015) | Data models + schema | Done |
+| Adapter (US-016) | parent_id propagation | Done |
+| Indexing (US-017-022) | Essence, embeddings, intelligence, relationships, detector, indexer | Done |
+| Search (US-023-025) | QueryInterpreter, DeterministicEngine, Orchestrator | Done |
+| Multi-session (US-026-029) | GraphEngine, Synthesizer, supersession wiring, CLI display | Done |
+| Cleanup (US-030-032) | Dead code, config precedence, SearchCache | Done |
+| Quality (US-033-034) | Integration/fallback tests, manual evaluation | Done |
+
+**Total: 34/34 stories passing**
+- ruff: clean on all modified files
+- mypy: clean on all modified files (4 pre-existing errors in opencode.py unrelated)
+- pytest: 265 search tests + hundreds more across indexer, models, CLI, adapters, fork, vault
+
 ## Ralph Loop System — OpenCode-Native (Full Huntley Subagent Architecture)
 
 ### Primary Path: OpenCode TUI
