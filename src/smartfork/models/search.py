@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from smartfork.models.relationship import TimelineSummary
+
 
 class SearchIntent(StrEnum):
     """What kind of session the user is looking for."""
@@ -83,6 +85,7 @@ class ResultCard:
     excerpt: str = ""
     tags: list[str] = field(default_factory=list)
     fork_command: str = ""
+    synthesis: TimelineSummary | None = None
 
 
 class JudgeOutput(BaseModel):

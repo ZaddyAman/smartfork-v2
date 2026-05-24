@@ -7,7 +7,9 @@ from loguru import logger
 from smartfork.models.query import QueryInterpretation
 from smartfork.models.search import ResultCard
 from smartfork.search.deterministic import DeterministicSearchEngine
+from smartfork.search.multi_session_synthesizer import MultiSessionSynthesizer
 from smartfork.search.query_interpreter import QueryInterpreter
+from smartfork.search.session_graph_engine import SessionGraphEngine
 
 
 class SearchOrchestrator:
@@ -40,6 +42,7 @@ class SearchOrchestrator:
             embedder=embedder, metadata_store=metadata_store
         )
         self.last_empty_reasoning: str = ""
+        self.last_multi_session_confidence: float = 0.0
 
     def search(
         self,
@@ -89,6 +92,8 @@ class SearchOrchestrator:
             logger.warning(f"QueryInterpreter failed: {e}. Using deterministic fallback.")
             qi = QueryInterpreter(llm=None).interpret(query, deep_mode=self.use_deep)
 
+        self.last_multi_session_confidence = qi.multi_session_confidence
+
         # ── Deterministic search (0 LLM calls) ──────────────────────────────
         print("Searching...")
         search_query = qi.expanded_query or qi.original_query or query
@@ -122,14 +127,29 @@ class SearchOrchestrator:
         interpretation: QueryInterpretation,
         original_query: str,
     ) -> list[ResultCard]:
-        """Placeholder for deep multi-session synthesis.
-
-        When SessionGraphEngine and MultiSessionSynthesizer land, this method
-        will be replaced with real graph traversal + LLM narrative generation.
-        """
+        """Run deep multi-session synthesis using graph engine + LLM."""
         for card in results:
             if not card.relevance_explanation:
                 card.relevance_explanation = (
                     "Deep mode: multi-session analysis requested."
                 )
+
+        if not self.store or not self.llm or not results:
+            return results
+
+        try:
+            graph_engine = SessionGraphEngine(self.store)
+            synthesizer = MultiSessionSynthesizer(llm=self.llm)
+
+            primary_session_id = results[0].session_id
+            chains = graph_engine.find_related_sessions(primary_session_id)
+
+            if chains:
+                summary = synthesizer.synthesize_timeline(original_query, chains)
+                results[0].synthesis = summary
+        except Exception as e:
+            logger.warning(
+                f"Deep synthesis failed: {e}. Returning results without narrative."
+            )
+
         return results

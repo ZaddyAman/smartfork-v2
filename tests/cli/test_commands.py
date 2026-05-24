@@ -266,6 +266,213 @@ class TestSearchCommand:
         assert "smartfork fork sess-789" in result.output
 
 
+    @patch("smartfork.search.orchestrator.SearchOrchestrator")
+    @patch("smartfork.providers.get_llm")
+    @patch("smartfork.providers.helpers.check_ollama_available")
+    def test_deep_flag(
+        self, mock_check, mock_get_llm, mock_orchestrator_cls, runner: CliRunner
+    ) -> None:
+        from smartfork.models.search import ResultCard
+
+        mock_check.return_value = True
+        mock_orchestrator = mock_orchestrator_cls.return_value
+        mock_orchestrator.search.return_value = [
+            ResultCard(
+                rank=1,
+                session_id="sess-789",
+                title="Deep result",
+                project_name="deep-project",
+                match_score=0.92,
+                time_ago="1 day ago",
+                excerpt="Deep path result.",
+                fork_command="smartfork fork sess-789",
+            )
+        ]
+        result = runner.invoke(app, ["search", "--deep", "deep query"])
+        assert result.exit_code == 0
+        assert "Deep result" in result.output
+        assert "deep (interpret + search + graph + synthesize)" in result.output
+
+    @patch("smartfork.search.deterministic.DeterministicSearchEngine")
+    def test_mode_deterministic(
+        self, mock_engine_cls, runner: CliRunner
+    ) -> None:
+        from smartfork.models.search import ResultCard
+
+        mock_engine = mock_engine_cls.return_value
+        mock_engine.search.return_value = [
+            ResultCard(
+                rank=1,
+                session_id="sess-mode",
+                title="Mode deterministic result",
+                project_name="mode-project",
+                match_score=0.88,
+                time_ago="2 days ago",
+                excerpt="Mode deterministic path.",
+                fork_command="smartfork fork sess-mode",
+            )
+        ]
+        result = runner.invoke(app, ["search", "--mode", "deterministic", "mode query"])
+        assert result.exit_code == 0
+        assert "Mode deterministic result" in result.output
+        assert "deterministic" in result.output
+
+    @patch("smartfork.search.orchestrator.SearchOrchestrator")
+    @patch("smartfork.providers.get_llm")
+    @patch("smartfork.providers.helpers.check_ollama_available")
+    def test_mode_deep(
+        self, mock_check, mock_get_llm, mock_orchestrator_cls, runner: CliRunner
+    ) -> None:
+        from smartfork.models.relationship import TimelineSummary
+        from smartfork.models.search import ResultCard
+
+        mock_check.return_value = True
+        mock_orchestrator = mock_orchestrator_cls.return_value
+        mock_orchestrator.search.return_value = [
+            ResultCard(
+                rank=1,
+                session_id="sess-deep-mode",
+                title="Mode deep result",
+                project_name="deep-mode-project",
+                match_score=0.91,
+                time_ago="3 hours ago",
+                excerpt="Mode deep path.",
+                fork_command="smartfork fork sess-deep-mode",
+                synthesis=TimelineSummary(
+                    narrative="Test narrative",
+                    suggested_fork_session_id="sess-deep-mode",
+                    resolution_status="solved",
+                ),
+            )
+        ]
+        result = runner.invoke(app, ["search", "--mode", "deep", "mode deep query"])
+        assert result.exit_code == 0
+        assert "Mode deep result" in result.output
+        assert "deep (interpret + search + graph + synthesize)" in result.output
+        assert "Test narrative" in result.output
+
+    @patch("smartfork.search.deterministic.DeterministicSearchEngine")
+    def test_supersession_annotation_display(
+        self, mock_engine_cls, runner: CliRunner
+    ) -> None:
+        from smartfork.models.search import ResultCard
+
+        mock_engine = mock_engine_cls.return_value
+        mock_engine.search.return_value = [
+            ResultCard(
+                rank=1,
+                session_id="sess-super",
+                title="Superseded session",
+                project_name="super-project",
+                match_score=0.75,
+                time_ago="1 day ago",
+                excerpt="This session was superseded.",
+                supersession_note="⬆ Superseded by sess-new",
+                fork_command="smartfork fork sess-super",
+            )
+        ]
+        result = runner.invoke(app, ["search", "--fast", "super query"])
+        assert result.exit_code == 0
+        assert "Superseded session" in result.output
+        assert "⬆ Superseded by sess-new" in result.output
+
+    @patch("smartfork.search.orchestrator.SearchOrchestrator")
+    @patch("smartfork.providers.get_llm")
+    @patch("smartfork.providers.helpers.check_ollama_available")
+    def test_deep_mode_timeline_output(
+        self, mock_check, mock_get_llm, mock_orchestrator_cls, runner: CliRunner
+    ) -> None:
+        from smartfork.models.relationship import TimelineEntry, TimelineSummary
+        from smartfork.models.search import ResultCard
+        from smartfork.models.session import QualityTag
+
+        mock_check.return_value = True
+        mock_orchestrator = mock_orchestrator_cls.return_value
+        mock_orchestrator.search.return_value = [
+            ResultCard(
+                rank=1,
+                session_id="sess-timeline",
+                title="Timeline result",
+                project_name="timeline-project",
+                match_score=0.90,
+                time_ago="1 day ago",
+                excerpt="Timeline test.",
+                fork_command="smartfork fork sess-timeline",
+                synthesis=TimelineSummary(
+                    narrative="A test narrative.",
+                    timeline=[
+                        TimelineEntry(
+                            session_id="sess-timeline",
+                            timestamp=1700000000000,
+                            task="Fix auth",
+                            quality_tag=QualityTag.SOLUTION_FOUND,
+                            summary="Fixed auth bug",
+                            relationship_to_next="continued_in",
+                        )
+                    ],
+                    suggested_fork_session_id="sess-timeline",
+                    resolution_status="solved",
+                ),
+            )
+        ]
+        result = runner.invoke(app, ["search", "--deep", "timeline query"])
+        assert result.exit_code == 0
+        assert "Timeline result" in result.output
+        assert "A test narrative." in result.output
+        assert "Timeline" in result.output
+        assert "Fix auth" in result.output
+
+    @patch("smartfork.search.orchestrator.SearchOrchestrator")
+    @patch("smartfork.providers.get_llm")
+    @patch("smartfork.providers.helpers.check_ollama_available")
+    def test_confidence_suggestion(
+        self, mock_check, mock_get_llm, mock_orchestrator_cls, runner: CliRunner
+    ) -> None:
+        from smartfork.models.search import ResultCard
+
+        mock_check.return_value = True
+        mock_orchestrator = mock_orchestrator_cls.return_value
+        mock_orchestrator.search.return_value = [
+            ResultCard(
+                rank=1,
+                session_id="sess-conf",
+                title="Confidence result",
+                project_name="conf-project",
+                match_score=0.85,
+                fork_command="smartfork fork sess-conf",
+            )
+        ]
+        mock_orchestrator.last_multi_session_confidence = 0.55
+        result = runner.invoke(app, ["search", "conf query"])
+        assert result.exit_code == 0
+        assert "Confidence result" in result.output
+        assert "Add --deep for timeline and narrative" in result.output
+
+    @patch("smartfork.search.deterministic.DeterministicSearchEngine")
+    def test_search_mode_footer(
+        self, mock_engine_cls, runner: CliRunner
+    ) -> None:
+        from smartfork.models.search import ResultCard
+
+        mock_engine = mock_engine_cls.return_value
+        mock_engine.search.return_value = [
+            ResultCard(
+                rank=1,
+                session_id="sess-footer",
+                title="Footer result",
+                project_name="footer-project",
+                match_score=0.80,
+                time_ago="1 hour ago",
+                fork_command="smartfork fork sess-footer",
+            )
+        ]
+        result = runner.invoke(app, ["search", "--fast", "footer query"])
+        assert result.exit_code == 0
+        assert "Footer result" in result.output
+        assert "deterministic" in result.output
+        assert "1 results" in result.output
+
+
 class TestForkCommand:
     @patch("smartfork.indexer.metadata_store.MetadataStore")
     @patch("smartfork.fork.assembler.ForkAssembler")

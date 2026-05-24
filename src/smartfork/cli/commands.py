@@ -192,6 +192,12 @@ def index(
         success("Indexing complete! Run [bold]smartfork status[/bold] for stats.")
 
 
+def _validate_mode(value: str) -> str:
+    if value not in {"auto", "deterministic", "deep"}:
+        raise typer.BadParameter(f"Invalid mode '{value}'. Choose from: auto, deterministic, deep")
+    return value
+
+
 @app.command(rich_help_panel="Core")
 def search(
     query: str = typer.Argument(..., help="Search query"),
@@ -201,6 +207,12 @@ def search(
     ),
     deep: bool = typer.Option(
         False, "--deep", help="Enable deep mode (multi-session synthesis, +1 LLM call)"
+    ),
+    mode: str = typer.Option(
+        "auto",
+        "--mode",
+        callback=_validate_mode,
+        help="Search mode: auto, deterministic, deep",
     ),
 ) -> None:
     """Search indexed sessions."""
@@ -227,8 +239,8 @@ def search(
     search_results: list[Any] = []
     orchestrator: Any = None
 
-    if fast:
-        # Fast path: deterministic search directly (0 LLM calls)
+    if fast or mode == "deterministic":
+        # Deterministic path: skip QueryInterpreter, use DeterministicSearchEngine directly
         from smartfork.search.deterministic import DeterministicSearchEngine
 
         engine = DeterministicSearchEngine(embedder=embedder, metadata_store=store)
@@ -245,17 +257,18 @@ def search(
         except RuntimeError as e:
             error(f"LLM setup failed: {e}")
             info(
-                "Run with [bold]--fast[/bold] to skip the orchestrator "
-                "and use deterministic search."
+                "Run with [bold]--fast[/bold] or [bold]--mode deterministic[/bold] "
+                "to skip the orchestrator and use deterministic search."
             )
             raise typer.Exit(1) from None
 
+        use_deep = deep or mode == "deep"
         orchestrator = SearchOrchestrator(
             embedder=embedder,
             metadata_store=store,
             llm=llm,
             use_fast=False,
-            use_deep=deep,
+            use_deep=use_deep,
         )
 
         try:
@@ -263,8 +276,8 @@ def search(
         except RuntimeError as e:
             error(f"Search failed: {e}")
             info(
-                "Run with [bold]--fast[/bold] to skip the orchestrator "
-                "and use deterministic search."
+                "Run with [bold]--fast[/bold] or [bold]--mode deterministic[/bold] "
+                "to skip the orchestrator and use deterministic search."
             )
             raise typer.Exit(1) from None
 
@@ -273,7 +286,7 @@ def search(
     header("Search")
     info(f"Query: {query}")
 
-    if fast:
+    if fast or mode == "deterministic":
         search_mode = (
             "deterministic (vector + BM25 + RRF + rerank + cards)"
             if embedder
@@ -289,7 +302,7 @@ def search(
 
         if embedder is None and search_results:
             warn("Vector search unavailable — results from keyword (BM25) only.")
-    elif deep:
+    elif deep or mode == "deep":
         search_mode = "deep (interpret + search + graph + synthesize)"
     else:
         search_mode = "default (interpret + deterministic search)"
@@ -298,6 +311,12 @@ def search(
         info("No relevant sessions found.")
         if orchestrator is not None and orchestrator.last_empty_reasoning:
             info(f"Reason: {orchestrator.last_empty_reasoning}")
+        if fast or mode == "deterministic":
+            info("Try running without --fast for AI-assisted search.")
+        elif embedder is None:
+            info("Search requires embeddings. Run [yellow]smartfork index --full[/yellow]")
+        else:
+            info("Try a different query or run [bold]smartfork index --full[/bold] to refresh.")
         return
 
     info(f"{len(search_results)} results · {search_duration:.1f}s · {search_mode}")
@@ -333,8 +352,10 @@ def search(
         title_parts = [
             f"[{t.accent}]{card.rank}[/{t.accent}]",
             f"[bold]{display_title}[/bold]",
-            badge,
         ]
+        if card.supersession_note:
+            title_parts.append(card.supersession_note)
+        title_parts.append(badge)
         if card.project_name:
             title_parts.append(f"[{t.dim}]{card.project_name}[/{t.dim}]")
         if card.time_ago:
@@ -375,7 +396,74 @@ def search(
         console.print()  # blank line between cards
 
     nl()
+
+    # Deep mode: show timeline + narrative
+    if (deep or mode == "deep") and search_results:
+        first_synthesis = getattr(search_results[0], "synthesis", None)
+        if first_synthesis is not None:
+            _display_timeline(first_synthesis)
+
+    # Borderline confidence suggestion
+    if (
+        not fast
+        and mode not in ("deterministic", "deep")
+        and orchestrator is not None
+        and search_results
+    ):
+        confidence = getattr(orchestrator, "last_multi_session_confidence", 0.0)
+        if isinstance(confidence, (int, float)) and 0.40 <= confidence <= 0.75:
+            info(
+                f"{len(search_results)} results found. "
+                "Add [bold]--deep[/bold] for timeline and narrative."
+            )
+
     info("Run [bold]smartfork fork <session_id>[/bold] to create context.")
+
+
+def _display_timeline(synthesis: Any) -> None:
+    """Render timeline and narrative panels from a TimelineSummary."""
+    from rich import box as rbox
+    from rich.panel import Panel
+    from rich.text import Text
+    from rich.tree import Tree
+
+    if synthesis.narrative:
+        narrative_panel = Panel(
+            Text(synthesis.narrative),
+            title="[bold]Narrative[/bold]",
+            border_style="blue",
+            box=rbox.ROUNDED,
+        )
+        console.print(narrative_panel)
+
+    if synthesis.timeline:
+        tree = Tree("[bold]Timeline[/bold]")
+        for entry in synthesis.timeline:
+            task = entry.task or "Untitled"
+            quality = getattr(entry.quality_tag, "value", str(entry.quality_tag))
+            date_str = ""
+            if entry.timestamp > 0:
+                from datetime import datetime
+
+                date_str = datetime.fromtimestamp(entry.timestamp / 1000).strftime(
+                    "%Y-%m-%d"
+                )
+            label = f"{date_str} — {task} ({quality})"
+            tree.add(label)
+
+        timeline_panel = Panel(
+            tree,
+            title="[bold]Timeline[/bold]",
+            border_style="green",
+            box=rbox.ROUNDED,
+        )
+        console.print(timeline_panel)
+
+    if synthesis.suggested_fork_session_id:
+        info(
+            "Suggested fork: "
+            f"[bold]smartfork fork {synthesis.suggested_fork_session_id}[/bold]"
+        )
 
 
 @app.command(rich_help_panel="Core")
