@@ -2,8 +2,10 @@
 
 from smartfork.search.agentic import AgenticSearchEngine
 from smartfork.search.cache import SearchCache
+from smartfork.search.decomposer import QueryDecomposer
 from smartfork.search.deterministic import DeterministicSearchEngine, QueryParser
 from smartfork.search.judge import BatchJudgeAgent
+from smartfork.search.multi_session_synthesizer import MultiSessionSynthesizer
 from smartfork.search.orchestrator import SearchOrchestrator
 from smartfork.search.parallel_retriever import ParallelRetriever
 from smartfork.search.query_interpreter import QueryInterpreter
@@ -15,7 +17,9 @@ __all__ = [
     "AgenticSearchEngine",
     "BatchJudgeAgent",
     "DeterministicSearchEngine",
+    "MultiSessionSynthesizer",
     "ParallelRetriever",
+    "QueryDecomposer",
     "QueryInterpreter",
     "QueryParser",
     "RerankerAgent",

@@ -624,7 +624,7 @@
         "ruff clean on multi_session_synthesizer.py"
       ],
       "priority": 27,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-028",
