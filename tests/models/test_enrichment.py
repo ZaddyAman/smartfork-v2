@@ -1,6 +1,7 @@
 """Tests for session enrichment model."""
 
 import pytest
+from pydantic import ValidationError
 
 from smartfork.models.enrichment import SessionEnrichment
 from smartfork.models.session import QualityTag
@@ -25,7 +26,7 @@ class TestSessionEnrichment:
             assert enrichment.quality_tag == tag
 
     def test_quality_tag_validation_invalid(self) -> None:
-        with pytest.raises(ValueError, match="quality_tag must be one of"):
+        with pytest.raises(ValidationError, match="quality_tag must be one of"):
             SessionEnrichment(quality_tag="invalid_tag")
 
     def test_title_truncation(self) -> None:

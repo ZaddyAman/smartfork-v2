@@ -22,7 +22,6 @@ def _make_session(**kwargs) -> SessionDocument:
         "task_raw": "Fix authentication bug",
         "reasoning_docs": [],
         "summary_doc": "",
-        "propositions": [],
         "quality_tag": QualityTag.UNKNOWN,
     }
     defaults.update(kwargs)
@@ -114,7 +113,6 @@ class TestMessageBoundaryChunker:
             task_raw="Task",
             reasoning_docs=["Reason 1", "Reason 2"],
             summary_doc="Summary",
-            propositions=["Prop 1", "Prop 2"],
         )
         chunker = MessageBoundaryChunker()
         chunks = chunker.chunk(session)

@@ -26,7 +26,6 @@ def _make_session(**kwargs) -> SessionDocument:
         "quality_tag": QualityTag.SOLUTION_FOUND,
         "edit_count": 3,
         "final_files": ["src/auth.py"],
-        "propositions": ["Always use UTC for JWT timestamps"],
         "duration_minutes": 15.0,
         "session_start": 1700000000000,
     }

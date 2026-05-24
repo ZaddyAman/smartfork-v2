@@ -32,9 +32,9 @@ class ProgressEvent:
     chunks: int = 0           # chunks in current session
     embed_current: int = 0    # chunks embedded so far
     embed_total: int = 0      # total chunks for current session
-    enrich_step: str = ""     # "title" | "summary" | "tags" | "quality" | "propositions"
+    enrich_step: str = ""     # "structured" | "done"
     enrich_done: int = 0
-    enrich_total: int = 5
+    enrich_total: int = 1
 
     # ── Live counters ──
     stats: dict[str, Any] = field(default_factory=dict)

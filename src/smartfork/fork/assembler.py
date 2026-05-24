@@ -151,11 +151,7 @@ class ForkAssembler:
 
         # Section 6: Gotchas/Warnings
         lines.append("## Gotchas & Warnings")
-        if session.propositions:
-            for prop in session.propositions[:3]:
-                lines.append(f"- ⚠️ {prop}")
-        else:
-            lines.append("- None noted.")
+        lines.append("- None noted.")
         lines.append("")
 
         # Intent-specific sections

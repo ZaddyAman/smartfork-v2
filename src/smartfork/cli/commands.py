@@ -62,6 +62,7 @@ def callback(
 def index(
     full: bool = typer.Option(False, "--full", help="Full re-index (ignore incremental)"),
     agent: str | None = typer.Option(None, "--agent", "-a", help="Index only specific agent"),
+    enrich: bool = typer.Option(False, "--enrich", help="Enable LLM enrichment"),
 ) -> None:
     """Index all discovered coding sessions."""
     from smartfork.config import get_config
@@ -84,15 +85,20 @@ def index(
         info("Search requires embeddings to function. Please fix the issue above and try again.")
         raise typer.Exit(1) from None
 
-    # Try to set up LLM for intelligence
+    # Try to set up LLM for intelligence (only when --enrich flag is passed)
     intelligence = None
-    try:
-        from smartfork.indexer.intelligence import IndexIntelligence
-        from smartfork.providers import get_llm
+    if enrich:
+        try:
+            from smartfork.indexer.intelligence import IndexIntelligence
+            from smartfork.providers import get_llm
 
-        llm = get_llm(cfg.llm_provider, cfg.llm_model)
-        intelligence = IndexIntelligence(llm=llm)
-    except Exception:
+            llm = get_llm(cfg.llm_provider, cfg.llm_model)
+            intelligence = IndexIntelligence(llm=llm)
+        except Exception:
+            from smartfork.indexer.intelligence import IndexIntelligence
+
+            intelligence = IndexIntelligence(llm=None)
+    else:
         from smartfork.indexer.intelligence import IndexIntelligence
 
         intelligence = IndexIntelligence(llm=None)

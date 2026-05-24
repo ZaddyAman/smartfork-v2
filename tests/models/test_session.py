@@ -142,14 +142,12 @@ class TestSessionDocument:
             quality_tag=QualityTag.SOLUTION_FOUND,
             tech_tags=["FastAPI", "Pydantic"],
             summary_doc="Built a FastAPI endpoint.",
-            propositions=["User wanted a REST API", "Used FastAPI router"],
             indexed_at=1_700_000_200_000,
         )
         assert doc.session_id == "abc123"
         assert doc.quality_tag == QualityTag.SOLUTION_FOUND
         assert doc.tech_tags == ["FastAPI", "Pydantic"]
         assert doc.edit_count == 2
-        assert len(doc.propositions) == 2
 
     def test_relationship_links_default_none(self) -> None:
         doc = SessionDocument(

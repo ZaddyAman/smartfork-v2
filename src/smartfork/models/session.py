@@ -102,7 +102,6 @@ class SessionDocument:
     task_raw: str = ""
     reasoning_docs: list[str] = field(default_factory=list)
     summary_doc: str = ""
-    propositions: list[str] = field(default_factory=list)
 
     # Quality (set at index time)
     quality_tag: QualityTag = QualityTag.UNKNOWN

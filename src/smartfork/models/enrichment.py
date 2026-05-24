@@ -1,33 +1,53 @@
 """Session enrichment models for SmartFork v2."""
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, Field, field_validator
 
 from smartfork.models.session import QualityTag
 
 
-@dataclass
-class SessionEnrichment:
+class SessionEnrichment(BaseModel):
     """Enrichment data produced for a session (title, summary, tags, etc.)."""
 
     title: str = ""
     summary: str = ""
     quality_tag: QualityTag = QualityTag.UNKNOWN
-    tech_tags: list[str] = field(default_factory=list)
+    tech_tags: list[str] = Field(default_factory=list)
 
     _MAX_TITLE_LEN: int = 80
     _MAX_SUMMARY_LEN: int = 500
 
-    def __post_init__(self) -> None:
-        if isinstance(self.quality_tag, str):
+    @field_validator("quality_tag", mode="before")
+    @classmethod
+    def _validate_quality_tag(cls, value: object) -> QualityTag:
+        if isinstance(value, QualityTag):
+            return value
+        if isinstance(value, str):
             try:
-                self.quality_tag = QualityTag(self.quality_tag)
+                return QualityTag(value)
             except ValueError as exc:
                 valid = [tag.value for tag in QualityTag]
                 raise ValueError(
-                    f"quality_tag must be one of {valid}, got '{self.quality_tag}'"
+                    f"quality_tag must be one of {valid}, got '{value}'"
                 ) from exc
-        if len(self.title) > self._MAX_TITLE_LEN:
-            self.title = self.title[: self._MAX_TITLE_LEN]
-        if len(self.summary) > self._MAX_SUMMARY_LEN:
-            self.summary = self.summary[: self._MAX_SUMMARY_LEN]
-        self.tech_tags = sorted(set(self.tech_tags))
+        raise ValueError(f"quality_tag must be a string or QualityTag, got {type(value)}")
+
+    @field_validator("title")
+    @classmethod
+    def _truncate_title(cls, value: str) -> str:
+        max_len = 80
+        if len(value) > max_len:
+            return value[:max_len]
+        return value
+
+    @field_validator("summary")
+    @classmethod
+    def _truncate_summary(cls, value: str) -> str:
+        max_len = 500
+        if len(value) > max_len:
+            return value[:max_len]
+        return value
+
+    @field_validator("tech_tags")
+    @classmethod
+    def _dedup_and_sort_tech_tags(cls, value: list[str]) -> list[str]:
+        return sorted(set(value))

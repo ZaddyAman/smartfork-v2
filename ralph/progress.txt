@@ -485,3 +485,23 @@ Started: $(date)
   - MetadataStore.get_vector_count() safely returns 0 when sqlite-vec unavailable
   - The old ChromaDB embed_and_store() was tightly coupled with chunking — removing chunking from the embedding pipeline simplifies the indexer significantly
 ---
+
+## 2026-05-24 - US-019
+- Refactored IndexIntelligence from 5 separate LLM calls to 1 structured call per session
+- Files modified (10 source): intelligence.py, enrichment.py (dataclass→Pydantic), session.py, parser.py, metadata_store.py, chunker.py, assembler.py, obsidian.py, progress.py, commands.py
+- Files modified (6 test): test_intelligence.py, test_chunker.py, test_assembler.py, test_metadata_store.py, test_session.py, test_schema_migration.py, test_enrichment.py, test_commands.py
+- New _llm_enrich_structured() method: 1 structured LLM call via complete_structured(output_schema=SessionEnrichment)
+- Fallback: if structured output unavailable, uses text response + JSON parsing via _parse_enrichment_result()
+- Removed 5 old methods: _llm_title, _llm_summary, _llm_tech_tags, _llm_quality, _llm_propositions
+- Removed propositions field from SessionDocument and all related code (models, parser, metadata_store, chunker, assembler, obsidian)
+- Converted SessionEnrichment from @dataclass to Pydantic BaseModel for instructor compatibility
+- ProgressEvent.enrich_total changed from 5 to 1
+- Added --enrich CLI flag: LLM enrichment now opt-in (default: heuristics only)
+- All fallback helpers preserved: _extract_title_fallback, _extract_summary_fallback, _classify_quality, _extract_tech_tags
+- 115 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - SessionEnrichment must be Pydantic BaseModel (not dataclass) for instructor.from_openai() structured output
+  - Converting dataclass→Pydantic requires updating all test assertions (ValidationError instead of ValueError)
+  - Propositions column kept in SQLite schema for backward compatibility but removed from all read/write paths
+  - --enrich flag flips default behavior: previously always used LLM if available, now heuristics-only unless flag passed
+---

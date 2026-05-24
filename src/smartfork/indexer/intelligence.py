@@ -1,10 +1,12 @@
 """Index-time intelligence for SmartFork v2 — quality tags, tech tags, summaries."""
 
-import re
+import json
 from collections.abc import Callable
+from typing import cast
 
 from loguru import logger
 
+from smartfork.models.enrichment import SessionEnrichment
 from smartfork.models.progress import ProgressEvent
 from smartfork.models.session import QualityTag, SessionDocument
 
@@ -131,24 +133,11 @@ def _extract_tech_tags(task_raw: str, files: list[str]) -> list[str]:
     return sorted(tags)
 
 
-def _extract_propositions(reasoning_docs: list[str]) -> list[str]:
-    """Extract atomic facts from reasoning docs without LLM."""
-    propositions: list[str] = []
-    for doc in reasoning_docs[:3]:
-        # Take first sentence of each reasoning block
-        sentences = re.split(r"[.!?]\s+", doc)
-        if sentences:
-            first = sentences[0].strip()
-            if len(first) > 10 and len(first) < 200:
-                propositions.append(first)
-    return propositions[:3]
-
-
 class IndexIntelligence:
     """Enriches session documents with LLM-powered intelligence.
 
-    When LLM is available, uses it for high-quality enrichment.
-    When LLM is unavailable, falls back to keyword-based heuristics.
+    When LLM is available: uses 1 structured call for all enrichment.
+    When LLM is unavailable: falls back to keyword-based heuristics.
 
     The class is designed so that enrich() is always safe to call —
     it will never raise an error, even if LLM is completely unavailable.
@@ -167,106 +156,38 @@ class IndexIntelligence:
         session: SessionDocument,
         progress_callback: Callable[[ProgressEvent], None] | None = None,
     ) -> SessionDocument:
-        """Enrich a single session with title, summary, quality, tech tags, propositions.
+        """Enrich a single session with title, summary, quality, and tech tags.
 
         Args:
             session: The SessionDocument to enrich.
-            progress_callback: Optional callback for per-step progress (title,
-                summary, tags, quality, propositions).
+            progress_callback: Optional callback for per-step progress.
 
         Returns:
             The same SessionDocument, mutated with enriched fields.
         """
-        steps_total = 5
-
-        # ── Title ──
         if progress_callback:
             progress_callback(ProgressEvent(
-                phase="enriching", enrich_step="title",
-                enrich_done=0, enrich_total=steps_total,
+                phase="enriching", enrich_step="structured",
+                enrich_done=0, enrich_total=1,
             ))
-        if self.llm:
-            try:
-                session.task_raw = self._llm_title(session.task_raw)
-            except Exception as e:
-                logger.warning(f"LLM titling failed, using fallback: {e}")
-                session.task_raw = _extract_title_fallback(session.task_raw)
-        else:
-            session.task_raw = _extract_title_fallback(session.task_raw)
 
-        # ── Summary ──
-        if progress_callback:
-            progress_callback(ProgressEvent(
-                phase="enriching", enrich_step="summary",
-                enrich_done=1, enrich_total=steps_total,
-            ))
         if self.llm:
             try:
-                session.summary_doc = self._llm_summary(session)
+                enrichment = self._llm_enrich_structured(session)
+                session.task_raw = enrichment.title
+                session.summary_doc = enrichment.summary
+                session.quality_tag = enrichment.quality_tag
+                session.tech_tags = enrichment.tech_tags
             except Exception as e:
-                logger.warning(f"LLM summary failed, using fallback: {e}")
-                session.summary_doc = _extract_summary_fallback(
-                    session.reasoning_docs, session.task_raw
-                )
+                logger.warning(f"LLM enrichment failed, using fallback: {e}")
+                self._fallback_enrich(session)
         else:
-            session.summary_doc = _extract_summary_fallback(
-                session.reasoning_docs, session.task_raw
-            )
-
-        # ── Tags ──
-        if progress_callback:
-            progress_callback(ProgressEvent(
-                phase="enriching", enrich_step="tags",
-                enrich_done=2, enrich_total=steps_total,
-            ))
-        all_files = session.files_edited + session.files_read + session.files_mentioned
-        if self.llm:
-            try:
-                session.tech_tags = self._llm_tech_tags(session.task_raw, all_files)
-            except Exception as e:
-                logger.warning(f"LLM tech tagging failed, using fallback: {e}")
-                session.tech_tags = _extract_tech_tags(session.task_raw, all_files)
-        else:
-            session.tech_tags = _extract_tech_tags(session.task_raw, all_files)
-
-        # ── Quality ──
-        if progress_callback:
-            progress_callback(ProgressEvent(
-                phase="enriching", enrich_step="quality",
-                enrich_done=3, enrich_total=steps_total,
-            ))
-        if self.llm:
-            try:
-                session.quality_tag = self._llm_quality(session)
-            except Exception as e:
-                logger.warning(f"LLM quality tagging failed, using fallback: {e}")
-                session.quality_tag = _classify_quality(
-                    session.task_raw, session.reasoning_docs
-                )
-        else:
-            session.quality_tag = _classify_quality(
-                session.task_raw, session.reasoning_docs
-            )
-
-        # ── Propositions ──
-        if progress_callback:
-            progress_callback(ProgressEvent(
-                phase="enriching", enrich_step="propositions",
-                enrich_done=4, enrich_total=steps_total,
-            ))
-        if self.llm:
-            try:
-                session.propositions = self._llm_propositions(session.reasoning_docs)
-            except Exception as e:
-                logger.warning(f"LLM proposition extraction failed, using fallback: {e}")
-                session.propositions = _extract_propositions(session.reasoning_docs)
-        else:
-            session.propositions = _extract_propositions(session.reasoning_docs)
+            self._fallback_enrich(session)
 
         if progress_callback:
             progress_callback(ProgressEvent(
                 phase="enriching", enrich_step="done",
-                enrich_done=steps_total, enrich_total=steps_total,
+                enrich_done=1, enrich_total=1,
             ))
 
         return session
@@ -289,66 +210,115 @@ class IndexIntelligence:
             self.enrich(session, progress_callback=progress_callback)
         return sessions
 
-    # LLM-based methods (stubs — will call self.llm when available)
-    def _llm_title(self, task_raw: str) -> str:
-        """Generate a title using LLM."""
-        prompt = (
-            f"Generate a short, descriptive title (max 80 chars) for this coding task:\n\n"
-            f"{task_raw}\n\nTitle:"
-        )
-        result = self.llm.complete(prompt, max_tokens=20)  # type: ignore[union-attr]
-        return str(result).strip() if result else _extract_title_fallback(task_raw)
+    def _llm_enrich_structured(self, session: SessionDocument) -> SessionEnrichment:
+        """Single structured LLM call for all enrichment.
 
-    def _llm_summary(self, session: SessionDocument) -> str:
-        """Generate a 3-sentence summary using LLM."""
-        context = f"Task: {session.task_raw}\n"
-        if session.reasoning_docs:
-            context += f"Key points: {' '.join(session.reasoning_docs[:2])}"
-        prompt = (
-            f"Summarize this coding session in 3 sentences:\n\n{context}\n\nSummary:"
+        Args:
+            session: The SessionDocument to enrich.
+
+        Returns:
+            A SessionEnrichment with title, summary, quality_tag, and tech_tags.
+        """
+        if self.llm is None:
+            raise RuntimeError("_llm_enrich_structured called without LLM")
+
+        context_parts: list[str] = [
+            f"Task: {session.task_raw}",
+            f"Files: {', '.join(session.files_edited[:5])}",
+            "Reasoning snippets:",
+        ]
+        for i, reasoning in enumerate(session.reasoning_docs[:2]):
+            context_parts.append(f"{i + 1}. {reasoning[:200]}")
+
+        context = "\n".join(context_parts)
+
+        prompt = f"""Analyze this coding session and return structured JSON:
+
+{context}
+
+Return this exact JSON structure:
+{{
+    "title": "Short descriptive title (max 80 chars)",
+    "summary": "3-sentence summary of what happened",
+    "quality_tag": "solution_found" or "dead_end" or "partial" or "reference",
+    "tech_tags": ["list", "of", "technologies"]
+}}
+
+Rules:
+- title: Max 80 characters, descriptive
+- summary: Exactly 3 sentences covering task, approach, outcome
+- quality_tag: Choose the best fit
+- tech_tags: Include frameworks, libraries, languages mentioned
+"""
+
+        # Use structured output if available
+        try:
+            result = self.llm.complete_structured(  # type: ignore[attr-defined]
+                prompt,
+                output_schema=SessionEnrichment,
+                temperature=0.1,
+            )
+            if result is not None:
+                return cast(SessionEnrichment, result)
+        except AttributeError:
+            pass
+
+        # Fallback to text parsing
+        text_result = self.llm.complete(prompt, max_tokens=300)  # type: ignore[attr-defined]
+        return self._parse_enrichment_result(str(text_result))
+
+    def _parse_enrichment_result(self, text: str) -> SessionEnrichment:
+        """Parse text result into SessionEnrichment.
+
+        Args:
+            text: Raw text response from LLM.
+
+        Returns:
+            SessionEnrichment with parsed or default values.
+        """
+        try:
+            # Try to find JSON in the response
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            if start >= 0 and end > start:
+                data = json.loads(text[start:end])
+                return SessionEnrichment(
+                    title=data.get("title", "Untitled Session"),
+                    summary=data.get("summary", "No summary available."),
+                    quality_tag=QualityTag(data.get("quality_tag", "partial")),
+                    tech_tags=data.get("tech_tags", []),
+                )
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+        # Ultimate fallback
+        return SessionEnrichment(
+            title="Untitled Session",
+            summary="No summary available.",
+            quality_tag=QualityTag.PARTIAL,
+            tech_tags=[],
         )
-        result = self.llm.complete(prompt, max_tokens=150)  # type: ignore[union-attr]
-        return str(result).strip() if result else _extract_summary_fallback(
+
+    def _fallback_enrich(self, session: SessionDocument) -> None:
+        """Heuristic enrichment without LLM.
+
+        Args:
+            session: The SessionDocument to mutate in place.
+        """
+        # Title
+        if not session.task_raw or session.task_raw == "Untitled Session":
+            session.task_raw = _extract_title_fallback(session.task_raw)
+
+        # Summary
+        session.summary_doc = _extract_summary_fallback(
             session.reasoning_docs, session.task_raw
         )
 
-    def _llm_quality(self, session: SessionDocument) -> QualityTag:
-        """Classify session quality using LLM."""
-        prompt = (
-            f"Classify this coding session outcome as one of: "
-            f"solution_found, dead_end, partial, reference.\n\n"
-            f"Task: {session.task_raw}\n"
-            f"Summary: {session.summary_doc}\n\n"
-            f"Classification:"
+        # Quality
+        session.quality_tag = _classify_quality(
+            session.task_raw, session.reasoning_docs
         )
-        result = self.llm.complete(prompt, max_tokens=10)  # type: ignore[union-attr]
-        result_str = str(result).strip().lower()
-        for tag in QualityTag:
-            if tag.value in result_str:
-                return tag
-        return _classify_quality(session.task_raw, session.reasoning_docs)
 
-    def _llm_tech_tags(self, task_raw: str, files: list[str]) -> list[str]:
-        """Extract tech tags using LLM."""
-        prompt = (
-            f"List the technologies, frameworks, and libraries mentioned, "
-            f"comma-separated:\n\nTask: {task_raw}\nFiles: {', '.join(files[:10])}\n\nTags:"
-        )
-        result = self.llm.complete(prompt, max_tokens=50)  # type: ignore[union-attr]
-        if result:
-            return [t.strip() for t in str(result).split(",") if t.strip()]
-        return _extract_tech_tags(task_raw, files)
-
-    def _llm_propositions(self, reasoning_docs: list[str]) -> list[str]:
-        """Extract atomic facts using LLM."""
-        if not reasoning_docs:
-            return []
-        prompt = (
-            f"Extract up to 3 atomic factual statements from these coding session notes, "
-            f"one per line:\n\n{' '.join(reasoning_docs[:2])}\n\nFacts:"
-        )
-        result = self.llm.complete(prompt, max_tokens=100)  # type: ignore[union-attr]
-        if result:
-            lines = [line.strip("- ").strip() for line in str(result).split("\n") if line.strip()]
-            return lines[:3]
-        return _extract_propositions(reasoning_docs)
+        # Tech tags
+        all_files = session.files_edited + session.files_read + session.files_mentioned
+        session.tech_tags = _extract_tech_tags(session.task_raw, all_files)

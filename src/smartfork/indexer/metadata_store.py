@@ -33,7 +33,6 @@ CREATE TABLE IF NOT EXISTS sessions (
     session_pattern TEXT NOT NULL DEFAULT 'standard_implementation',
     task_raw TEXT NOT NULL DEFAULT '',
     summary_doc TEXT NOT NULL DEFAULT '',
-    propositions TEXT NOT NULL DEFAULT '[]',
     quality_tag TEXT NOT NULL DEFAULT 'unknown',
     tech_tags TEXT NOT NULL DEFAULT '[]',
     reasoning_docs TEXT NOT NULL DEFAULT '[]',
@@ -339,11 +338,11 @@ class MetadataStore:
                     files_edited, files_read, files_mentioned,
                     edit_count, user_edit_count, final_files,
                     domains, languages, layers, session_pattern,
-                    task_raw, summary_doc, propositions,
+                    task_raw, summary_doc,
                     quality_tag, tech_tags, reasoning_docs, indexed_at, schema_version
                 ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                     ?, ?, ?, ?
                 )""",
                 (
@@ -367,7 +366,6 @@ class MetadataStore:
                     session.session_pattern,
                     session.task_raw,
                     session.summary_doc,
-                    self._serialize_list(session.propositions),
                     (
                         session.quality_tag.value
                         if hasattr(session.quality_tag, "value")
@@ -875,7 +873,6 @@ class MetadataStore:
             task_raw=data.get("task_raw", ""),
             reasoning_docs=self._deserialize_list(data.get("reasoning_docs", "[]")),
             summary_doc=data.get("summary_doc", ""),
-            propositions=self._deserialize_list(data.get("propositions", "[]")),
             quality_tag=QualityTag(data.get("quality_tag", "unknown")),
             tech_tags=self._deserialize_list(data.get("tech_tags", "[]")),
             indexed_at=data.get("indexed_at", 0),

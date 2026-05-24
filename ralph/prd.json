@@ -436,7 +436,7 @@
         "ruff clean on intelligence.py"
       ],
       "priority": 19,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-020",

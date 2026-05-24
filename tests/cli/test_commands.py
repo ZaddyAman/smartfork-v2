@@ -74,6 +74,67 @@ class TestIndexCommand:
         assert result.exit_code == 0
         assert "0 vectors stored" in result.output
 
+    @patch("smartfork.indexer.intelligence.IndexIntelligence")
+    @patch("smartfork.providers.get_llm")
+    @patch("smartfork.indexer.indexer.FullIndexer")
+    @patch("smartfork.cli.display.IndexDisplay")
+    def test_index_with_enrich_flag(
+        self,
+        mock_display: MagicMock,
+        mock_indexer_cls: MagicMock,
+        mock_get_llm: MagicMock,
+        mock_intelligence_cls: MagicMock,
+        runner: CliRunner,
+    ) -> None:
+        mock_get_llm.return_value = MagicMock()
+        mock_indexer = mock_indexer_cls.return_value
+        mock_indexer.index_all.return_value = {
+            "scanned": 1,
+            "parsed": 1,
+            "chunked": 10,
+            "stored": 10,
+            "errors": 0,
+        }
+
+        result = runner.invoke(app, ["index", "--full", "--enrich"])
+        assert result.exit_code == 0
+        assert "Indexing Summary" in result.output
+
+        mock_get_llm.assert_called_once()
+        mock_intelligence_cls.assert_called_once()
+        _, kwargs = mock_intelligence_cls.call_args
+        assert kwargs.get("llm") is not None
+
+    @patch("smartfork.indexer.intelligence.IndexIntelligence")
+    @patch("smartfork.providers.get_llm")
+    @patch("smartfork.indexer.indexer.FullIndexer")
+    @patch("smartfork.cli.display.IndexDisplay")
+    def test_index_without_enrich_flag(
+        self,
+        mock_display: MagicMock,
+        mock_indexer_cls: MagicMock,
+        mock_get_llm: MagicMock,
+        mock_intelligence_cls: MagicMock,
+        runner: CliRunner,
+    ) -> None:
+        mock_indexer = mock_indexer_cls.return_value
+        mock_indexer.index_all.return_value = {
+            "scanned": 1,
+            "parsed": 1,
+            "chunked": 10,
+            "stored": 10,
+            "errors": 0,
+        }
+
+        result = runner.invoke(app, ["index", "--full"])
+        assert result.exit_code == 0
+        assert "Indexing Summary" in result.output
+
+        mock_get_llm.assert_not_called()
+        mock_intelligence_cls.assert_called_once()
+        _, kwargs = mock_intelligence_cls.call_args
+        assert kwargs.get("llm") is None
+
 
 class TestSearchCommand:
     @patch("smartfork.search.orchestrator.SearchOrchestrator")

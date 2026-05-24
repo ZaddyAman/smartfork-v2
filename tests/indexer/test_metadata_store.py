@@ -30,7 +30,6 @@ def _make_session(**kwargs) -> SessionDocument:
         "session_pattern": "bug_fix",
         "task_raw": "Fix authentication bug",
         "summary_doc": "Fixed the auth bug by updating JWT validation.",
-        "propositions": ["JWT token was expired", "Fixed validation logic"],
         "reasoning_docs": ["Analyzed auth flow", "Identified JWT bug"],
         "quality_tag": QualityTag.SOLUTION_FOUND,
         "tech_tags": ["JWT", "FastAPI"],

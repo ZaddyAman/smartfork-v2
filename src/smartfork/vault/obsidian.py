@@ -153,11 +153,7 @@ class ObsidianVaultGenerator:
                 lines.append(f"- {f}")
             lines.append("")
 
-        if session.propositions:
-            lines.append("## Propositions")
-            for prop in session.propositions:
-                lines.append(f"- {prop}")
-            lines.append("")
+
 
         return "\n".join(lines)
 

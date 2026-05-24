@@ -474,7 +474,6 @@ class SessionParser:
             task_raw=raw.task_raw,
             reasoning_docs=reasoning_docs,
             summary_doc="",
-            propositions=[],
             quality_tag=QualityTag.UNKNOWN,
             tech_tags=[],
             parent_id=raw.parent_id,

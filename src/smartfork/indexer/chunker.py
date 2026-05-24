@@ -168,20 +168,6 @@ class MessageBoundaryChunker:
             )
             chunk_index += 1
 
-        # 4. Proposition chunks
-        for prop in session.propositions:
-            if prop.strip():
-                chunks.append(
-                    Chunk(
-                        chunk_id=f"{session.session_id}_prop_{chunk_index}",
-                        session_id=session.session_id,
-                        content=prop,
-                        doc_type="proposition",
-                        chunk_index=chunk_index,
-                    )
-                )
-                chunk_index += 1
-
         return chunks
 
 
