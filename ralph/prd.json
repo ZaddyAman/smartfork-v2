@@ -527,7 +527,7 @@
         "ruff clean on query_interpreter.py"
       ],
       "priority": 23,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-024",
