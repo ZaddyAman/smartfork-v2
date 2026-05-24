@@ -75,7 +75,13 @@ class SearchOrchestrator:
         if self.use_fast:
             print("Fast search...")
             try:
-                return self.engine.search(query, top_k, project_filter, quality_filter)
+                results = self.engine.search(
+                    query, top_k, project_filter, quality_filter
+                )
+                if not results:
+                    self.last_empty_reasoning = f"No results for query: {query}"
+                    return []
+                return results
             except Exception as e:
                 logger.warning(f"Fast search failed: {e}")
                 return []
