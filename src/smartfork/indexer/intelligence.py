@@ -55,7 +55,6 @@ KNOWN_TECH: dict[str, str] = {
     "pytorch": "PyTorch",
     "transformers": "Transformers",
     "langchain": "LangChain",
-    "chromadb": "ChromaDB",
 }
 
 

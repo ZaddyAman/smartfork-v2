@@ -700,7 +700,7 @@
         "ruff clean on all modified files"
       ],
       "priority": 30,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-031",

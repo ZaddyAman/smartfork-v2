@@ -3,7 +3,7 @@
 from unittest.mock import MagicMock
 
 from smartfork.models.search import QueryDecomposition
-from smartfork.search.decomposer import _QUERY_DECOMPOSITION_PROMPT, QueryDecomposer
+from smartfork.search.legacy.decomposer import _QUERY_DECOMPOSITION_PROMPT, QueryDecomposer
 
 
 class TestQueryDecomposer:

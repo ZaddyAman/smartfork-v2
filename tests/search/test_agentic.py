@@ -2,7 +2,7 @@
 
 from unittest.mock import MagicMock
 
-from smartfork.search.agentic import AgenticSearchEngine
+from smartfork.search.legacy.agentic import AgenticSearchEngine
 
 
 class MockLLM:

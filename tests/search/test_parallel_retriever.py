@@ -3,12 +3,9 @@
 import json
 from unittest.mock import MagicMock
 
-import pytest
-
 from smartfork.models.search import QueryDecomposition, ResultCard
 from smartfork.search.deterministic import DeterministicSearchEngine
-from smartfork.search.parallel_retriever import ParallelRetriever
-
+from smartfork.search.legacy.parallel_retriever import ParallelRetriever
 
 REQUIRED_KEYS = {
     "session_id",

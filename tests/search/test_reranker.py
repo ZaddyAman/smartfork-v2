@@ -2,10 +2,12 @@
 
 from unittest.mock import MagicMock
 
-import pytest
-
 from smartfork.models.search import BatchRerankResult, RerankResult
-from smartfork.search.reranker import RerankerAgent, _build_batch_prompt, _filter_reasoning_docs
+from smartfork.search.legacy.reranker import (
+    RerankerAgent,
+    _build_batch_prompt,
+    _filter_reasoning_docs,
+)
 
 
 def _make_candidate(

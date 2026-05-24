@@ -10,7 +10,7 @@ from loguru import logger
 
 from smartfork.models.search import BatchJudgeResult, JudgeOutput, QueryDecomposition
 from smartfork.providers.protocols import LLMProvider
-from smartfork.search.reranker import _extract_keywords
+from smartfork.search.legacy.reranker import _extract_keywords
 
 _MAX_CONTENT_LENGTH = 1000
 _BATCH_SIZE = 5

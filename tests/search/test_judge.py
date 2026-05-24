@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from smartfork.models.search import BatchJudgeResult, JudgeOutput, QueryDecomposition
-from smartfork.search.judge import BatchJudgeAgent, _build_batch_prompt
+from smartfork.search.legacy.judge import BatchJudgeAgent, _build_batch_prompt
 
 
 def _make_candidate(
@@ -153,7 +153,9 @@ class TestBatchJudgeAgent:
         assert result[1].session_id == "s3"
         assert result[2].session_id == "s1"
 
-    def test_prompt_contains_query_core_goal_intent(self, mock_llm: MagicMock, qd: QueryDecomposition) -> None:
+    def test_prompt_contains_query_core_goal_intent(
+        self, mock_llm: MagicMock, qd: QueryDecomposition
+    ) -> None:
         mock_llm.complete_structured.return_value = BatchJudgeResult(
             judgments=[
                 JudgeOutput(
@@ -199,7 +201,9 @@ class TestBatchJudgeAgent:
         assert result[0].session_id == "s10"
         assert result[0].relevance_score == pytest.approx(1.0)
 
-    def test_empty_candidates_returns_empty(self, mock_llm: MagicMock, qd: QueryDecomposition) -> None:
+    def test_empty_candidates_returns_empty(
+        self, mock_llm: MagicMock, qd: QueryDecomposition
+    ) -> None:
         agent = BatchJudgeAgent(llm=mock_llm)
         result = agent.judge([], "query", qd)
         assert result == []
@@ -256,7 +260,9 @@ class TestBatchJudgeAgent:
         assert len(result) == 1
         assert result[0].session_id == "s1"
 
-    def test_candidates_without_session_id(self, mock_llm: MagicMock, qd: QueryDecomposition) -> None:
+    def test_candidates_without_session_id(
+        self, mock_llm: MagicMock, qd: QueryDecomposition
+    ) -> None:
         agent = BatchJudgeAgent(llm=mock_llm)
         candidates = [{"match_score": 0.5, "title": "no id"}]
         result = agent.judge(candidates, "query", qd)
@@ -306,7 +312,9 @@ class TestBatchJudgeAgent:
         assert agent.rejected_judgments[1].session_id == "s3"
         assert agent.rejected_judgments[1].reason == "Wrong topic"
 
-    def test_prompt_includes_matching_content(self, mock_llm: MagicMock, qd: QueryDecomposition) -> None:
+    def test_prompt_includes_matching_content(
+        self, mock_llm: MagicMock, qd: QueryDecomposition
+    ) -> None:
         mock_llm.complete_structured.return_value = BatchJudgeResult(
             judgments=[
                 JudgeOutput(
@@ -338,7 +346,9 @@ class TestBatchJudgeAgent:
         # database schema is included as fallback because only 2 items matched
         assert "database schema" in prompt
 
-    def test_prompt_fallback_truncates_docs(self, mock_llm: MagicMock, qd: QueryDecomposition) -> None:
+    def test_prompt_fallback_truncates_docs(
+        self, mock_llm: MagicMock, qd: QueryDecomposition
+    ) -> None:
         long_doc = "a" * 2000
         mock_llm.complete_structured.return_value = BatchJudgeResult(
             judgments=[
