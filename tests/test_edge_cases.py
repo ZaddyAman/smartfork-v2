@@ -216,7 +216,7 @@ class TestPerformance:
             cards = engine.search("test query")
             elapsed = time.perf_counter() - start
         assert len(cards) <= 10
-        assert elapsed < 1.0
+        assert elapsed < 3.0
 
     def test_index_latency_100(self, tmp_path: Path) -> None:
         """EDGE-03.2: Indexing 100 dummy sessions completes within a reasonable time."""

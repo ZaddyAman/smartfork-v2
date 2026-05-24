@@ -9,13 +9,16 @@ from smartfork.indexer.metadata_store import MetadataStore
 def _sqlite_vec_available() -> bool:
     """Check if sqlite-vec extension is available."""
     try:
+        import sqlite_vec  # type: ignore[import-untyped]
         conn = sqlite3.connect(":memory:")
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
         conn.execute(
             "CREATE VIRTUAL TABLE test USING vec0(id text primary key, v float[1])"
         )
         conn.close()
         return True
-    except sqlite3.OperationalError:
+    except Exception:
         return False
 
 

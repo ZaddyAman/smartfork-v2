@@ -705,10 +705,13 @@ def status() -> None:
 
     # Section 4: Embeddings
     lines.append(Text("Embeddings", style=f"bold {t.accent}"))
+    vec_available = store.vectors_available if store else False
     if vector_count > 0:
         lines.append(Text(f"{vector_count} vectors stored · {emb_model}"))
+    elif vec_available:
+        lines.append(Text("0 vectors stored · sqlite-vec ready", style=t.warning))
     else:
-        lines.append(Text("Vector count unknown (sqlite-vec not available)", style=t.warning))
+        lines.append(Text("sqlite-vec not available", style=t.error))
 
     content = Group(*lines)
     panel = Panel(
@@ -724,9 +727,13 @@ def status() -> None:
     if total == 0:
         nl()
         info("Run [bold]smartfork index --full[/bold] to populate.")
-    elif vector_count == 0 and total > 0:
+    elif not vec_available and total > 0:
         nl()
-        error("Search disabled! Sessions indexed but no vectors stored.")
+        error("Vector search disabled — sqlite-vec extension not loaded.")
+        info(
+            "FTS5 keyword search still works. Run "
+            "[bold]smartfork index --full[/bold] to populate vectors."
+        )
         info("[yellow]ollama pull qwen3-embedding:0.6b[/yellow]")
 
 

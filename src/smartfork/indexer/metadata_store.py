@@ -132,6 +132,11 @@ class MetadataStore:
         self._init_db()
         self._ensure_schema()
 
+    @property
+    def vectors_available(self) -> bool:
+        """Return True if sqlite-vec extension is loaded and functional."""
+        return self._vec_available
+
     def _init_db(self) -> None:
         """Initialize the database schema."""
         with self._get_conn() as conn:
@@ -143,8 +148,17 @@ class MetadataStore:
     def _try_create_vec0(self, conn: sqlite3.Connection) -> None:
         """Attempt to create the sqlite-vec vec0 table.
 
+        Loads the sqlite-vec extension via Python package if available.
         Logs a warning if the extension is unavailable but never crashes.
         """
+        # Attempt to load the sqlite-vec extension
+        try:
+            import sqlite_vec  # type: ignore[import-untyped]
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+        except Exception:
+            pass  # Extension may already be loaded or unavailable
+
         try:
             conn.execute("""
                 CREATE VIRTUAL TABLE IF NOT EXISTS session_vectors USING vec0(
@@ -307,10 +321,17 @@ class MetadataStore:
         self._try_create_vec0(conn)
 
     def _get_conn(self) -> sqlite3.Connection:
-        """Get a SQLite connection."""
+        """Get a SQLite connection with sqlite-vec extension loaded if available."""
         conn = sqlite3.connect(str(self.db_path))
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON;")
+        # Attempt to load sqlite-vec extension on every connection
+        try:
+            import sqlite_vec
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+        except Exception:
+            pass
         return conn
 
     @staticmethod
@@ -663,7 +684,8 @@ class MetadataStore:
         with self._get_conn() as conn:
             try:
                 conn.execute(
-                    "INSERT OR REPLACE INTO session_vectors(session_id, embedding) VALUES (?, ?)",
+                    "INSERT OR REPLACE INTO session_vectors"
+                    "(session_id, embedding) VALUES (?, vec_f32(?))",
                     (session_id, json.dumps(vector)),
                 )
                 conn.commit()
@@ -685,7 +707,8 @@ class MetadataStore:
         with self._get_conn() as conn:
             try:
                 row = conn.execute(
-                    "SELECT embedding FROM session_vectors WHERE session_id = ?",
+                    "SELECT vec_to_json(embedding) as embedding"
+                    " FROM session_vectors WHERE session_id = ?",
                     (session_id,),
                 ).fetchone()
                 if row:
@@ -716,10 +739,11 @@ class MetadataStore:
                 cursor = conn.execute(
                     """
                     SELECT session_id, distance FROM session_vectors
-                    WHERE vss_search(embedding, vss_search_params(?, ?))
-                    ORDER BY distance LIMIT ?
+                    WHERE embedding MATCH vec_f32(?)
+                    ORDER BY distance
+                    LIMIT ?
                     """,
-                    (json.dumps(query_vector), limit, limit),
+                    (json.dumps(query_vector), limit),
                 )
                 for row in cursor.fetchall():
                     similarity = max(0.0, 1.0 - (row["distance"] / 2.0))
