@@ -9,7 +9,9 @@ from typing import Any
 import tomli_w
 from loguru import logger
 from pydantic import Field, field_validator, model_validator
+from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings.sources import PydanticBaseSettingsSource
 
 from smartfork.models.config import AgentConfig
 
@@ -37,6 +39,25 @@ VALID_LLM_PROVIDERS: set[str] = {
 }
 
 
+class _TomlConfigSettingsSource(PydanticBaseSettingsSource):
+    """Custom settings source that loads values from config.toml."""
+
+    def __init__(
+        self, settings_cls: type[BaseSettings], toml_data: dict[str, Any]
+    ) -> None:
+        super().__init__(settings_cls)
+        self.toml_data = toml_data
+
+    def get_field_value(
+        self, field: FieldInfo, field_name: str
+    ) -> tuple[Any, str, bool]:
+        field_value = self.toml_data.get(field_name)
+        return field_value, field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        return self.toml_data
+
+
 class SmartForkConfig(BaseSettings):
     """SmartFork v2 configuration backed by TOML with env-var override."""
 
@@ -46,6 +67,35 @@ class SmartForkConfig(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Custom source order: init kwargs > env vars > .env > TOML > defaults."""
+        toml_data: dict[str, Any] = {}
+        if CONFIG_FILE.exists():
+            try:
+                with open(CONFIG_FILE, "rb") as f:
+                    data = tomllib.load(f)
+                toml_data = cls._flatten_toml(data)
+            except Exception as exc:
+                logger.warning(
+                    f"Failed to parse config file {CONFIG_FILE}: {exc}. Using defaults."
+                )
+
+        return (
+            init_settings,
+            env_settings,
+            dotenv_settings,
+            _TomlConfigSettingsSource(settings_cls, toml_data),
+            file_secret_settings,
+        )
 
     # Agents
     agents: dict[str, AgentConfig] = Field(default_factory=dict)
@@ -171,16 +221,12 @@ class SmartForkConfig(BaseSettings):
             return instance
 
         try:
-            with open(CONFIG_FILE, "rb") as f:
-                data = tomllib.load(f)
+            return cls()
         except Exception as exc:
             logger.warning(
-                f"Failed to parse config file {CONFIG_FILE}: {exc}. Using defaults."
+                f"Failed to load config from {CONFIG_FILE}: {exc}. Using defaults."
             )
             return cls()
-
-        flat_data = cls._flatten_toml(data)
-        return cls(**flat_data)
 
     @classmethod
     def _flatten_toml(cls, data: dict[str, Any]) -> dict[str, Any]:

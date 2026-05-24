@@ -2,11 +2,21 @@
 
 import json
 import os
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import tomli
+
+
+@pytest.fixture(autouse=True)
+def _patch_config_file(tmp_path: Path) -> Iterator[None]:
+    """Prevent tests from accidentally reading the user's real config file."""
+    with patch(
+        "smartfork.config.CONFIG_FILE", tmp_path / "nonexistent_config.toml"
+    ):
+        yield
 
 
 class TestConfigDefaults:
@@ -451,3 +461,56 @@ class TestTieredLLMConfig:
             assert "llm_base_url" not in data["models"]
             assert "strategic_llm_base_url" not in data["models"]
             assert "smart_llm_base_url" not in data["models"]
+
+
+class TestConfigPrecedence:
+    """Tests for configuration source precedence (env vars > TOML > defaults)."""
+
+    def test_env_var_overrides_toml(self, tmp_path: Path) -> None:
+        from smartfork.config import SmartForkConfig
+
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[models]\nllm_model = "qwen2.5-coder:7b"\n')
+
+        with patch("smartfork.config.CONFIG_DIR", tmp_path), \
+             patch("smartfork.config.CONFIG_FILE", config_file), \
+             patch("pathlib.Path.home", return_value=tmp_path), \
+             patch.dict(os.environ, {"SMARTFORK_LLM_MODEL": "gpt-4"}, clear=False):
+            cfg = SmartForkConfig.load()
+            assert cfg.llm_model == "gpt-4"
+
+    def test_unset_env_var_falls_back_to_toml(self, tmp_path: Path) -> None:
+        from smartfork.config import SmartForkConfig
+
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[models]\nllm_model = "qwen2.5-coder:7b"\n')
+
+        env = dict(os.environ)
+        env.pop("SMARTFORK_LLM_MODEL", None)
+
+        with patch("smartfork.config.CONFIG_DIR", tmp_path), \
+             patch("smartfork.config.CONFIG_FILE", config_file), \
+             patch("pathlib.Path.home", return_value=tmp_path), \
+             patch.dict(os.environ, env, clear=True):
+            cfg = SmartForkConfig.load()
+            assert cfg.llm_model == "qwen2.5-coder:7b"
+
+    def test_missing_toml_value_falls_back_to_default(self, tmp_path: Path) -> None:
+        from smartfork.config import SmartForkConfig
+
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[core]\ntheme = "phosphor"\n')
+
+        env = dict(os.environ)
+        env.pop("SMARTFORK_LLM_MODEL", None)
+        env.pop("SMARTFORK_THEME", None)
+
+        with patch("smartfork.config.CONFIG_DIR", tmp_path), \
+             patch("smartfork.config.CONFIG_FILE", config_file), \
+             patch("pathlib.Path.home", return_value=tmp_path), \
+             patch.dict(os.environ, env, clear=True):
+            cfg = SmartForkConfig.load()
+            # llm_model is not in TOML, so it should use the default
+            assert cfg.llm_model == "qwen2.5-coder:7b"
+            # theme is in TOML
+            assert cfg.theme == "phosphor"
