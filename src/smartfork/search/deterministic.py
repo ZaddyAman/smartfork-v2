@@ -1,11 +1,11 @@
 """Deterministic search engine (Path A) for SmartFork v2."""
 
+import string
 import time
 from typing import Any
 
 from loguru import logger
 
-from smartfork.indexer.metadata_store import MetadataStore
 from smartfork.models.search import QueryDecomposition, ResultCard, SearchIntent
 
 # Intent detection patterns
@@ -171,11 +171,11 @@ class QueryParser:
 
 
 class DeterministicSearchEngine:
-    """Deterministic search: embed -> vector + BM25 -> RRF fusion -> rerank -> cards.
+    """Deterministic search: embed -> vector + FTS5 -> RRF fusion -> rerank -> cards.
 
     This is the always-available, zero-cost search path. It uses:
-    - ChromaDB for vector search
-    - rank-bm25 for keyword search
+    - sqlite-vec for vector search
+    - FTS5 BM25 for keyword search
     - Reciprocal Rank Fusion (RRF) to combine results
     - Multi-signal reranker for final ordering
     """
@@ -245,81 +245,77 @@ class DeterministicSearchEngine:
             return {}
 
     def _bm25_search(self, query: str, top_k: int) -> dict[str, float]:
-        """Perform BM25 keyword search over session metadata.
-
-        Builds a corpus from task_raw + summary_doc of all sessions in the
-        metadata store and ranks using BM25Okapi.
-        """
+        """Perform keyword search using persistent FTS5 index via MetadataStore."""
         if not self.metadata_store:
             return {}
 
-        # Fetch all sessions from metadata store
+        expanded_query = self._build_fts5_query(query)
+
         try:
-            store: MetadataStore = self.metadata_store
-            all_ids = store.get_filtered_ids(limit=10_000)
-        except Exception as e:
-            logger.debug(f"Failed to fetch session IDs for BM25: {e}")
-            return {}
+            results = self.metadata_store.fts5_search(expanded_query, limit=top_k * 3)
+            if not results:
+                return {}
 
-        if not all_ids:
-            return {}
+            # Normalize BM25 scores (lower is better) to 0-1 (higher is better)
+            scores = [score for _, score in results]
+            min_score = min(scores)
+            max_score = max(scores)
+            score_range = max_score - min_score
 
-        # Build corpus
-        corpus_docs: list[list[str]] = []
-        session_ids: list[str] = []
-        for sid in all_ids:
-            try:
-                session_data = store.get_session(sid)
-                if session_data is None:
-                    continue
-                # Combine searchable fields
-                text = " ".join([
-                    session_data.get("task_raw", ""),
-                    session_data.get("summary_doc", ""),
-                    session_data.get("project_name", ""),
-                    " ".join(store._deserialize_list(session_data.get("domains", "[]"))),
-                    " ".join(store._deserialize_list(session_data.get("languages", "[]"))),
-                    " ".join(store._deserialize_list(session_data.get("tech_tags", "[]"))),
-                ]).lower().split()
-                if text:
-                    corpus_docs.append(text)
-                    session_ids.append(sid)
-            except Exception:
-                continue
-
-        if not corpus_docs:
-            return {}
-
-        # Run BM25
-        try:
-            from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
-            bm25 = BM25Okapi(corpus_docs)
-            tokenized_query = query.lower().split()
-            scores = bm25.get_scores(tokenized_query)
-
-            session_scores: dict[str, float] = {}
-            for sid, score in zip(session_ids, scores, strict=False):
-                if score > 0:
-                    session_scores[sid] = float(score)
-
-            # Normalize to 0-1 range
-            if session_scores:
-                max_score = max(session_scores.values())
-                if max_score > 0:
-                    session_scores = {
-                        sid: s / max_score for sid, s in session_scores.items()
-                    }
+            normalized: dict[str, float] = {}
+            for sid, score in results:
+                if score_range > 0:
+                    normalized[sid] = (max_score - score) / score_range
+                else:
+                    normalized[sid] = 1.0
 
             # Return top-k
-            sorted_results = sorted(session_scores.items(), key=lambda x: -x[1])
+            sorted_results = sorted(normalized.items(), key=lambda x: -x[1])
             return dict(sorted_results[:top_k])
 
-        except ImportError:
-            logger.debug("rank-bm25 not installed, skipping BM25 search")
-            return {}
         except Exception as e:
-            logger.debug(f"BM25 search failed: {e}")
+            logger.debug(f"FTS5 search failed: {e}")
             return {}
+
+    def _build_fts5_query(self, query: str) -> str:
+        """Build an FTS5 MATCH query from keywords using OR groups joined with AND."""
+        stop_words = {
+            "the", "a", "an", "is", "was", "in", "on", "at", "to", "for",
+            "and", "or", "of", "with", "by", "from", "as", "it", "this",
+            "that", "these", "those", "i", "you", "he", "she", "we", "they",
+        }
+        words = [
+            w.strip('"\'').lower()
+            for w in query.split()
+            if w.lower() not in stop_words and len(w.strip('"\'')) > 1
+        ]
+
+        if not words:
+            return query
+
+        try:
+            from smartfork.search.query_interpreter import SYNONYM_MAP
+            has_synonyms = True
+        except ImportError:
+            has_synonyms = False
+
+        groups: list[str] = []
+        seen: set[str] = set()
+
+        for word in words:
+            if word in seen:
+                continue
+            seen.add(word)
+
+            if has_synonyms and word in SYNONYM_MAP:
+                synonyms = [word] + [s for s in SYNONYM_MAP[word] if s not in seen]
+                seen.update(synonyms)
+                quoted = [f'"{s}"' for s in synonyms]
+                groups.append(f"({' OR '.join(quoted)})")
+            else:
+                groups.append(f'"{word}"')
+
+        return " AND ".join(groups)
 
     def _rrf_fuse(
         self,
@@ -376,14 +372,42 @@ class DeterministicSearchEngine:
             filtered[session_id] = score
         return filtered
 
+    def _extract_keywords(self, text: str) -> list[str]:
+        """Extract lowercase keywords from query text."""
+        translator = str.maketrans("", "", string.punctuation)
+        cleaned = text.lower().translate(translator)
+        stop_words = {
+            "the", "a", "an", "is", "was", "in", "on", "at", "to", "for",
+            "and", "or", "of", "with", "by", "from", "as", "it", "this",
+            "that", "these", "those", "i", "you", "he", "she", "we", "they",
+            "me", "my", "our", "us", "them", "their", "his", "her", "its",
+            "be", "been", "being", "have", "has", "had", "do", "does", "did",
+            "will", "would", "could", "should", "may", "might", "can",
+            "what", "which", "who", "when", "where", "why", "how",
+            "all", "any", "both", "each", "few", "more", "most", "other",
+            "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+            "than", "too", "very", "just", "now", "then", "here", "there",
+            "up", "down", "out", "off", "over", "under", "again", "further",
+            "once", "also", "if", "because", "until", "while", "about",
+            "against", "between", "into", "through", "during", "before",
+            "after", "above", "below", "am", "are",
+        }
+        return [w for w in cleaned.split() if w not in stop_words and len(w) > 2]
+
     def _rerank(
         self, results: dict[str, float], decomposition: QueryDecomposition
     ) -> list[tuple[str, float]]:
-        """Multi-signal reranker: semantic 50%, file 20%, keyword 15%, recency 5%, quality 10%."""
+        """Multi-signal reranker.
+
+        Weights: semantic 45%, file_overlap 20%, keyword_density 15%,
+        quality 10%, recency 5%, code_preference 5% = 100%.
+        Relationship boost: +0.15 if latest_in_chain, ×0.70 if superseded.
+        """
+        query_keywords = self._extract_keywords(decomposition.core_goal)
         reranked: list[tuple[str, float]] = []
+
         for session_id, base_score in results.items():
-            # Base score carries 50% weight
-            final_score = base_score * 0.5
+            final_score = base_score * 0.45
 
             if self.metadata_store:
                 session = self.metadata_store.get_session(session_id)
@@ -404,16 +428,46 @@ class DeterministicSearchEngine:
                                 final_score += 0.05
                             elif age_days < 30:
                                 final_score += 0.03
-            else:
-                # Bonus for recency (if temporal intent)
-                if decomposition.prefer_recent:
-                    final_score += 0.05
 
-            # Bonus for code preference
+                    # File overlap (20%)
+                    if query_keywords:
+                        files_edited = self.metadata_store._deserialize_list(
+                            session.get("files_edited", "[]")
+                        )
+                        overlap = sum(
+                            1
+                            for kw in query_keywords
+                            if any(kw in f.lower() for f in files_edited)
+                        )
+                        final_score += 0.20 * (overlap / len(query_keywords))
+
+                    # Keyword density (15%)
+                    if query_keywords:
+                        text = " ".join([
+                            session.get("task_raw", ""),
+                            session.get("summary_doc", ""),
+                        ]).lower()
+                        matches = sum(1 for kw in query_keywords if kw in text)
+                        final_score += 0.15 * (matches / len(query_keywords))
+
+                    # Relationship boost
+                    superseding = self.metadata_store.get_superseding_sessions(
+                        session_id
+                    )
+                    if superseding:
+                        final_score *= 0.70
+                    else:
+                        superseded = self.metadata_store.get_superseded_sessions(
+                            session_id
+                        )
+                        if superseded:
+                            final_score += 0.15
+
+            # Code preference bonus (5%)
             if decomposition.prefer_code:
                 final_score += 0.05
 
-            reranked.append((session_id, final_score))
+            reranked.append((session_id, min(final_score, 1.0)))
 
         return sorted(reranked, key=lambda x: -x[1])
 

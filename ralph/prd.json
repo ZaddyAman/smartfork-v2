@@ -550,7 +550,7 @@
         "ruff clean on deterministic.py"
       ],
       "priority": 24,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-025",

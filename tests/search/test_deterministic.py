@@ -1,6 +1,8 @@
 """Tests for deterministic search engine."""
 
-from smartfork.models.search import ResultCard, SearchIntent
+from unittest.mock import MagicMock
+
+from smartfork.models.search import QueryDecomposition, ResultCard, SearchIntent
 from smartfork.search.cache import SearchCache
 from smartfork.search.deterministic import (
     DeterministicSearchEngine,
@@ -59,6 +61,218 @@ class TestHelpers:
 
     def test_humanize_timestamp_recent(self) -> None:
         assert "ago" in _humanize_timestamp(0) or "now" in _humanize_timestamp(0)
+
+
+class TestBuildFTS5Query:
+    def test_basic_and_query(self) -> None:
+        engine = DeterministicSearchEngine()
+        query = engine._build_fts5_query("fix auth bug")
+        assert '"fix"' in query
+        assert '"auth"' in query
+        assert '"bug"' in query
+        assert " AND " in query
+
+    def test_strips_stop_words(self) -> None:
+        engine = DeterministicSearchEngine()
+        query = engine._build_fts5_query("the auth and bug in system")
+        # "the" may appear inside "authentication" — just assert stop words are
+        # not standalone terms in the query
+        assert '"auth"' in query
+        assert '"bug"' in query
+        assert '"system"' in query
+
+    def test_synonym_expansion(self) -> None:
+        engine = DeterministicSearchEngine()
+        query = engine._build_fts5_query("auth bug")
+        # auth should expand to include synonyms
+        assert '"auth"' in query
+        assert " OR " in query
+
+
+class TestBM25Search:
+    def test_fts5_search_normalizes_scores(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        # FTS5 returns lower = better; simulate three results
+        mock_store.fts5_search.return_value = [
+            ("s1", -2.0),
+            ("s2", -1.0),
+            ("s3", 0.0),
+        ]
+        engine.metadata_store = mock_store
+
+        results = engine._bm25_search("auth bug", top_k=2)
+
+        mock_store.fts5_search.assert_called_once()
+        assert "s1" in results
+        assert "s2" in results
+        # Best (lowest) score should normalize to highest value
+        assert results["s1"] > results["s2"] > results.get("s3", -1)
+
+    def test_fts5_search_empty_results(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.fts5_search.return_value = []
+        engine.metadata_store = mock_store
+
+        results = engine._bm25_search("test", top_k=2)
+        assert results == {}
+
+    def test_fts5_search_no_store(self) -> None:
+        engine = DeterministicSearchEngine()
+        assert engine._bm25_search("test", top_k=2) == {}
+
+
+class TestRerank:
+    def test_file_overlap_boost(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = {
+            "task_raw": "implement auth",
+            "summary_doc": "auth module done",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": '["src/auth.py", "src/login.py"]',
+        }
+        mock_store._deserialize_list.return_value = ["src/auth.py", "src/login.py"]
+        mock_store.get_superseding_sessions.return_value = []
+        mock_store.get_superseded_sessions.return_value = []
+        engine.metadata_store = mock_store
+
+        decomposition = QueryDecomposition(
+            core_goal="auth python login",
+            intent=SearchIntent.IMPLEMENTATION_LOOKUP.value,
+            prefer_code=True,
+        )
+
+        results = engine._rerank({"s1": 0.5}, decomposition)
+        assert len(results) == 1
+        session_id, score = results[0]
+        assert session_id == "s1"
+        # base 0.5 * 0.45 = 0.225
+        # file overlap: 2 keywords match files (auth, login) out of 3 -> +0.20 * (2/3) ≈ +0.133
+        # keyword density: 3 keywords all in text -> +0.15 * (3/3) = +0.15
+        # code preference: +0.05
+        # total ≈ 0.225 + 0.133 + 0.15 + 0.05 = 0.558
+        # base 0.5 * 0.45 = 0.225
+        # file overlap: 2 keywords match files (auth, login) out of 3 -> +0.20 * (2/3) ≈ +0.133
+        # keyword density: 1 keyword in text (auth) out of 3 -> +0.15 * (1/3) = +0.05
+        # code preference: +0.05
+        # total = 0.225 + 0.133 + 0.05 + 0.05 = 0.458
+        assert abs(score - 0.458333) < 0.001
+
+    def test_keyword_density_boost(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = {
+            "task_raw": "build fastapi docker api endpoint",
+            "summary_doc": "",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": "[]",
+        }
+        mock_store._deserialize_list.return_value = []
+        mock_store.get_superseding_sessions.return_value = []
+        mock_store.get_superseded_sessions.return_value = []
+        engine.metadata_store = mock_store
+
+        decomposition = QueryDecomposition(
+            core_goal="fastapi docker api",
+            intent=SearchIntent.VAGUE_MEMORY.value,
+        )
+
+        results = engine._rerank({"s1": 0.5}, decomposition)
+        _, score = results[0]
+        # base 0.5 * 0.45 = 0.225
+        # keyword density: 3/3 match -> +0.15
+        # total = 0.375
+        assert score == 0.375
+
+    def test_quality_boost(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = {
+            "task_raw": "fix bug",
+            "summary_doc": "",
+            "quality_tag": "solution_found",
+            "session_start": 0,
+            "files_edited": "[]",
+        }
+        mock_store._deserialize_list.return_value = []
+        mock_store.get_superseding_sessions.return_value = []
+        mock_store.get_superseded_sessions.return_value = []
+        engine.metadata_store = mock_store
+
+        decomposition = QueryDecomposition(
+            core_goal="fix bug",
+            intent=SearchIntent.VAGUE_MEMORY.value,
+        )
+
+        results = engine._rerank({"s1": 0.5}, decomposition)
+        _, score = results[0]
+        # base 0.5 * 0.45 = 0.225
+        # keyword density: 2/2 match -> +0.15
+        # quality: +0.10
+        # total = 0.475
+        assert score == 0.475
+
+    def test_relationship_boost_latest_in_chain(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = {
+            "task_raw": "auth",
+            "summary_doc": "",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": "[]",
+        }
+        mock_store._deserialize_list.return_value = []
+        mock_store.get_superseding_sessions.return_value = []
+        # This session supersedes another -> latest in chain
+        mock_store.get_superseded_sessions.return_value = [{"superseded_id": "s0"}]
+        engine.metadata_store = mock_store
+
+        decomposition = QueryDecomposition(
+            core_goal="auth",
+            intent=SearchIntent.VAGUE_MEMORY.value,
+        )
+
+        results = engine._rerank({"s1": 0.5}, decomposition)
+        _, score = results[0]
+        # base 0.5 * 0.45 = 0.225
+        # keyword density: 1/1 match -> +0.15
+        # relationship latest in chain: +0.15
+        # total = 0.525
+        assert score == 0.525
+
+    def test_relationship_penalty_superseded(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = {
+            "task_raw": "auth",
+            "summary_doc": "",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": "[]",
+        }
+        mock_store._deserialize_list.return_value = []
+        # This session is superseded by another
+        mock_store.get_superseding_sessions.return_value = [{"superseding_id": "s2"}]
+        mock_store.get_superseded_sessions.return_value = []
+        engine.metadata_store = mock_store
+
+        decomposition = QueryDecomposition(
+            core_goal="auth",
+            intent=SearchIntent.VAGUE_MEMORY.value,
+        )
+
+        results = engine._rerank({"s1": 0.5}, decomposition)
+        _, score = results[0]
+        # base 0.5 * 0.45 = 0.225
+        # keyword density: 1/1 match -> +0.15
+        # relationship superseded: *0.70
+        # total = (0.225 + 0.15) * 0.70 = 0.2625
+        assert abs(score - 0.2625) < 0.001
 
 
 class TestDeterministicSearchEngine:
