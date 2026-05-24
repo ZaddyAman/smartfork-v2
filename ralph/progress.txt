@@ -505,3 +505,22 @@ Started: $(date)
   - Propositions column kept in SQLite schema for backward compatibility but removed from all read/write paths
   - --enrich flag flips default behavior: previously always used LLM if available, now heuristics-only unless flag passed
 ---
+
+## 2026-05-24 - US-020
+- Built RelationshipDetector with explicit, heuristic, and optional LLM-verified tiers
+- Files created: src/smartfork/indexer/relationship_detector.py, tests/indexer/test_relationship_detector.py
+- Files modified: src/smartfork/indexer/__init__.py (exported RelationshipDetector)
+- detect_all(sessions, vectors) -> list[SessionRelationship] combines all detection tiers
+- Tier 1 (explicit): uses parent_id for continuation relationships with confidence=1.0
+- Tier 2 (heuristic): groups by project, sorts by time, forward-only O(n²/2) comparisons
+- Hard filters: same session skip, >30 day gap, no domain overlap
+- Scoring: temporal (<24h) +0.30, file overlap (>30%) +0.25, embedding sim (>0.8) +0.20, workspace +0.15, resolution boost +0.10
+- Classification: supersession (resolved older + task overlap), continuation (task + file overlap), branch (same project, different task), related (fallback)
+- Helper methods: _is_resolved, _significant_task_overlap (Jaccard >0.5), _cosine_similarity
+- 21 tests covering all tiers, hard filters, forward-only optimization, classification, and helpers
+- **Learnings for future iterations:**
+  - Forward-only optimization eliminates ~50% of comparisons vs all permutations
+  - Scoring threshold of 0.40 ensures only meaningful relationships are stored
+  - Cosine similarity handles zero vectors and length mismatches gracefully
+  - Jaccard similarity with cleaned word sets is effective for task overlap detection
+---

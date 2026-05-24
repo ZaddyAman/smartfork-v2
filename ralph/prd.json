@@ -461,7 +461,7 @@
         "ruff clean on relationship_detector.py"
       ],
       "priority": 20,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-021",
