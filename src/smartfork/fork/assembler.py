@@ -230,6 +230,8 @@ class ForkAssembler:
             f"Key files: {', '.join(session.files_edited[:10])}\n"
             f"Languages: {', '.join(session.languages)}\n"
         )
+        if supersession_warning:
+            prompt += f"\n⚠️ IMPORTANT: {supersession_warning}\n"
         result = self.llm.complete(prompt, max_tokens=500)
         return str(result) if result else self._raw_assemble(
             session, intent, user_query, supersession_warning

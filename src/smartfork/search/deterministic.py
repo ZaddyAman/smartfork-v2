@@ -566,6 +566,21 @@ class DeterministicSearchEngine:
                     if len(excerpt) > 120:
                         excerpt = excerpt[:117] + "..."
 
+                    # Supersession note
+                    supersession_note = ""
+                    superseding = self.metadata_store.get_superseding_sessions(
+                        session_id
+                    )
+                    if superseding:
+                        sid = superseding[0].get("superseding_id", "unknown")
+                        supersession_note = f"⬆ Superseded by {sid}"
+                    else:
+                        superseded = self.metadata_store.get_superseded_sessions(
+                            session_id
+                        )
+                        if superseded:
+                            supersession_note = "✅ Latest in chain"
+
                     # Tags: combine tech_tags + domains + languages
                     tech_tags = self.metadata_store._deserialize_list(
                         session.get("tech_tags", "[]")
@@ -606,6 +621,7 @@ class DeterministicSearchEngine:
                     tags = []
             else:
                 tags = []
+                supersession_note = ""
 
             cards.append(
                 ResultCard(
@@ -616,7 +632,7 @@ class DeterministicSearchEngine:
                     match_score=score,
                     relevance_explanation="",
                     quality_badge=quality_badge,
-                    supersession_note="",
+                    supersession_note=supersession_note,
                     time_ago=time_ago,
                     duration=duration,
                     files_summary=files_summary,

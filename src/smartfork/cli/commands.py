@@ -408,9 +408,20 @@ def fork(
         info("Run [bold]smartfork index --full[/bold] to index sessions first.")
         raise typer.Exit(1)
 
+    # Check if session is superseded
+    superseding = store.get_superseding_sessions(session_id)
+    supersession_warning = ""
+    if superseding:
+        latest_id = superseding[0].get("superseding_id", "unknown")
+        supersession_warning = (
+            f"This session was superseded by {latest_id}. "
+            "Consider forking from the latest version."
+        )
+        warn(supersession_warning)
+
     fork_intent = ForkIntent(intent)
     assembler = ForkAssembler()
-    handoff = assembler.assemble(doc, intent=fork_intent)
+    handoff = assembler.assemble(doc, intent=fork_intent, supersession_warning=supersession_warning)
 
     header("Fork")
     info(f"Generating [bold]{intent}[/bold] fork from {session_id}...")

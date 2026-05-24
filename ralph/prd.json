@@ -648,7 +648,7 @@
         "ruff clean on deterministic.py, commands.py, assembler.py"
       ],
       "priority": 28,
-      "passes": false
+      "passes": true
     },
     {
       "id": "US-029",

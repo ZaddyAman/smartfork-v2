@@ -274,6 +274,86 @@ class TestRerank:
         # total = (0.225 + 0.15) * 0.70 = 0.2625
         assert abs(score - 0.2625) < 0.001
 
+    def test_supersession_note_annotation(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = {
+            "task_raw": "auth",
+            "summary_doc": "",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": "[]",
+        }
+        mock_store._deserialize_list.return_value = []
+        mock_store.get_superseding_sessions.return_value = [{"superseding_id": "s2"}]
+        mock_store.get_superseded_sessions.return_value = []
+        engine.metadata_store = mock_store
+
+        decomposition = QueryDecomposition(
+            core_goal="auth",
+            intent=SearchIntent.VAGUE_MEMORY.value,
+        )
+
+        cards = engine._format_cards([("s1", 0.5)], decomposition)
+        assert len(cards) == 1
+        assert cards[0].supersession_note == "⬆ Superseded by s2"
+
+    def test_superseded_score_demotion(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = {
+            "task_raw": "auth",
+            "summary_doc": "",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": "[]",
+        }
+        mock_store._deserialize_list.return_value = []
+        mock_store.get_superseding_sessions.return_value = [{"superseding_id": "s2"}]
+        mock_store.get_superseded_sessions.return_value = []
+        engine.metadata_store = mock_store
+
+        decomposition = QueryDecomposition(
+            core_goal="auth",
+            intent=SearchIntent.VAGUE_MEMORY.value,
+        )
+
+        results = engine._rerank({"s1": 0.5}, decomposition)
+        _, score = results[0]
+        # base 0.5 * 0.45 = 0.225
+        # keyword density: 1/1 match -> +0.15
+        # relationship superseded: *0.70
+        # total = (0.225 + 0.15) * 0.70 = 0.2625
+        assert abs(score - 0.2625) < 0.001
+
+    def test_latest_in_chain_score_boost(self) -> None:
+        engine = DeterministicSearchEngine()
+        mock_store = MagicMock()
+        mock_store.get_session.return_value = {
+            "task_raw": "auth",
+            "summary_doc": "",
+            "quality_tag": "unknown",
+            "session_start": 0,
+            "files_edited": "[]",
+        }
+        mock_store._deserialize_list.return_value = []
+        mock_store.get_superseding_sessions.return_value = []
+        mock_store.get_superseded_sessions.return_value = [{"superseded_id": "s0"}]
+        engine.metadata_store = mock_store
+
+        decomposition = QueryDecomposition(
+            core_goal="auth",
+            intent=SearchIntent.VAGUE_MEMORY.value,
+        )
+
+        results = engine._rerank({"s1": 0.5}, decomposition)
+        _, score = results[0]
+        # base 0.5 * 0.45 = 0.225
+        # keyword density: 1/1 match -> +0.15
+        # relationship latest in chain: +0.15
+        # total = 0.225 + 0.15 + 0.15 = 0.525
+        assert score == 0.525
+
 
 class TestDeterministicSearchEngine:
     def test_search_returns_cards(self) -> None:
