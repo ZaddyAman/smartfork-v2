@@ -8,6 +8,7 @@ from smartfork.search.orchestrator import SearchOrchestrator
 from smartfork.search.parallel_retriever import ParallelRetriever
 from smartfork.search.query_interpreter import QueryInterpreter
 from smartfork.search.reranker import RerankerAgent
+from smartfork.search.session_graph_engine import SessionGraphEngine
 from smartfork.search.synthesis import SynthesisAgent
 
 __all__ = [
@@ -20,5 +21,6 @@ __all__ = [
     "RerankerAgent",
     "SearchCache",
     "SearchOrchestrator",
+    "SessionGraphEngine",
     "SynthesisAgent",
 ]
