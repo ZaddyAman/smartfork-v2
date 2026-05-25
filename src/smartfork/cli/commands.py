@@ -948,5 +948,134 @@ def mcp(
         error("Usage: smartfork mcp [install|serve|status|uninstall]")
 
 
+@app.command("eval", rich_help_panel="Evaluation")
+def eval_command(
+    sample_size: int = typer.Option(
+        50, "--sample-size", "-n", help="Number of sessions to sample"
+    ),
+    output_dir: str = typer.Option(
+        "./eval-results", "--output", "-o", help="Output directory for reports"
+    ),
+    no_cache: bool = typer.Option(False, "--no-cache", help="Skip cache and regenerate everything"),
+    modes: str = typer.Option(
+        "fast,default,deep", "--modes", help="Comma-separated modes: fast,default,deep"
+    ),
+    query_types: str = typer.Option(
+        "specific,short,vague",
+        "--query-types",
+        help="Comma-separated query types: specific,short,vague",
+    ),
+    provider: str | None = typer.Option(
+        "go", "--provider", help="LLM provider for eval judge, queries, and search modes"
+    ),
+    model: str | None = typer.Option(
+        "deepseek-v4-flash",
+        "--model",
+        help="LLM model for judge, query generation, and search modes",
+    ),
+) -> None:
+    """Evaluate search quality against real session data.
+
+    Samples sessions, generates synthetic queries, runs search in all modes,
+    judges relevance with LLM, and produces an HTML report.
+    """
+    import time
+    from pathlib import Path
+
+    from loguru import logger
+
+    from smartfork.cli.display import IndexDisplay
+    from smartfork.config import get_config
+    from smartfork.eval.cache import EvalCache
+    from smartfork.eval.evaluator import EvalOrchestrator
+    from smartfork.indexer.metadata_store import MetadataStore
+    from smartfork.models.progress import ProgressEvent
+    from smartfork.providers import get_embedder, get_llm
+
+    cfg = get_config()
+    store = MetadataStore(cfg.sqlite_db_path)
+
+    # Set up cache
+    cache = EvalCache()
+    if no_cache:
+        cache.clear()
+
+    # Set up embedder
+    embedder = None
+    try:
+        from smartfork.indexer.embedder import EmbeddingPipeline
+
+        emb = get_embedder(cfg.embedding_provider, cfg.embedding_model, cfg.embedding_dimensions)
+        embedder = EmbeddingPipeline(embedder=emb, store=store)
+    except Exception as exc:
+        logger.warning(f"Embedder unavailable: {exc}")
+
+    # Set up judge LLM (use cheap model if specified, otherwise config default)
+    judge_llm = None
+    query_gen_llm = None
+    try:
+        judge_provider = provider or cfg.llm_provider
+        judge_model = model or cfg.llm_model
+        judge_llm = get_llm(judge_provider, judge_model)
+        query_gen_llm = judge_llm
+    except Exception as exc:
+        logger.warning(f"LLM unavailable for eval: {exc}")
+        warn("Running eval without LLM — judge scores will be neutral (score=1).")
+
+    mode_list = [m.strip() for m in modes.split(",") if m.strip()]
+    query_type_list = [q.strip() for q in query_types.split(",") if q.strip()]
+
+    evaluator = EvalOrchestrator(
+        store=store,
+        judge_llm=judge_llm,
+        query_gen_llm=query_gen_llm,
+        search_llm=judge_llm,
+        embedder=embedder,
+        cache=cache,
+        sample_size=sample_size,
+    )
+
+    header("Evaluation")
+    info(f"Modes: {', '.join(mode_list)}")
+    info(f"Query types: {', '.join(query_type_list)}")
+    info(f"Sample size: {sample_size}")
+    info(f"Output: {output_dir}")
+    nl()
+
+    start_time = time.time()
+
+    try:
+        with IndexDisplay(console) as display:
+            eval_run = evaluator.run(
+                modes=mode_list,
+                query_types=query_type_list,
+                progress_callback=lambda pct, msg: display.update(
+                    ProgressEvent(
+                        phase="indexing",
+                        current=pct,
+                        total=100,
+                        session_current=pct,
+                        session_total=100,
+                        enrich_step=msg,
+                    )
+                ),
+            )
+            display.finish()
+    except RuntimeError as exc:
+        error(str(exc))
+        raise typer.Exit(1) from None
+
+    # Render report
+    run_name = time.strftime("%Y%m%d-%H%M%S")
+    output_path = Path(output_dir) / run_name
+    html_path = evaluator.render_report(eval_run, output_path)
+
+    duration = time.time() - start_time
+    nl()
+    success(f"Evaluation complete in {duration:.1f}s")
+    info(f"Report saved to: {html_path}")
+    info("Open the HTML file in your browser to view full results.")
+
+
 if __name__ == "__main__":
     app()

@@ -8,6 +8,14 @@ from smartfork.models.config import (
     UIConfig,
 )
 from smartfork.models.enrichment import SessionEnrichment
+from smartfork.models.evaluation import (
+    EvalBatchJudgeOutput,
+    EvalJudgeOutput,
+    EvalQueryBatch,
+    EvalRun,
+    GeneratedQuery,
+    ModeResult,
+)
 from smartfork.models.fork import ContextReport, ForkIntent
 from smartfork.models.progress import ProgressEvent
 from smartfork.models.query import QueryInterpretation
@@ -78,4 +86,11 @@ __all__ = [
     "QueryInterpretation",
     # Enrichment
     "SessionEnrichment",
+    # Evaluation
+    "GeneratedQuery",
+    "EvalQueryBatch",
+    "EvalJudgeOutput",
+    "EvalBatchJudgeOutput",
+    "ModeResult",
+    "EvalRun",
 ]
