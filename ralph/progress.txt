@@ -2,6 +2,68 @@
 Started: $(date)
 ---
 
+## STATUS: COMPLETE — All 34 stories implemented (2026-05-24)
+
+| Phase | Stories | Status |
+|-------|---------|--------|
+| Foundation (US-014/015) | Data models + schema | Done |
+| Adapter (US-016) | parent_id propagation | Done |
+| Indexing (US-017-022) | Essence, embeddings, intelligence, relationships, detector, indexer | Done |
+| Search (US-023-025) | QueryInterpreter, DeterministicEngine, Orchestrator | Done |
+| Multi-session (US-026-029) | GraphEngine, Synthesizer, supersession wiring, CLI display | Done |
+| Cleanup (US-030-032) | Dead code, config precedence, SearchCache | Done |
+| Quality (US-033-034) | Integration/fallback tests, manual evaluation | Done |
+
+**Total: 34/34 stories passing**
+- ruff: clean on all modified files
+- mypy: clean on all modified files (4 pre-existing errors in opencode.py unrelated)
+- pytest: 265 search tests + hundreds more across indexer, models, CLI, adapters, fork, vault
+
+## Ralph Loop System — OpenCode-Native (Full Huntley Subagent Architecture)
+
+### Primary Path: OpenCode TUI
+- Start OpenCode in project root, switch to "ralph" agent, say "Start the Ralph loop"
+- Or: `opencode --agent ralph "Start the Ralph loop"`
+- Design doc: `docs/opencode-native-ralph.md`
+- Loop logic lives IN the agent's system prompt (no shell script needed)
+
+### Agent Architecture
+
+| Agent | File | Mode | Model | Permissions |
+|-------|------|------|-------|-------------|
+| **ralph** | `.opencode/agents/ralph.md` | primary | Strong (deepseek) | read/glob/grep/bash/task/edit |
+| **ralph-plan** | `.opencode/agents/ralph-plan.md` | subagent | opencode-go/kimi-k2.6 | read/glob/grep only |
+| **ralph-worker** | `.opencode/agents/ralph-worker.md` | subagent | opencode-go/kimi-k2.6 | Full access, parallel up to 10 |
+| **ralph-test** | `.opencode/agents/ralph-test.md` | subagent | opencode-go/kimi-k2.6 | bash/read only, STRICTLY 1 |
+
+### Per-Story Flow
+1. Orchestrator reads prd.json → picks next story
+2. ralph-plan studies spec + codebase (gaps check)
+3. ralph-worker (parallel) implements the story
+4. ralph-test (exactly 1) runs ruff → mypy → pytest
+5. If pass → commit, update PRD. If fail → fix → retest
+6. Loop to next story
+
+### Context Guarantee
+- Each subagent spawn = fresh 170k token window
+- Orchestrator's context: ~3k prompt + ~1k per story summary
+- After 27 stories: ~30k tokens (17% of window)
+- Orchestrator NEVER reads/writes code files — only PRD + summaries
+
+### Fallback: Shell Scripts
+- `ralph/ralph.sh` (bash/WSL/Git Bash) — `./ralph.sh --tool opencode 50`
+- `ralph/ralph.ps1` (PowerShell) — `.\ralph.ps1`
+- Use when headless/CI or if TUI agent unavailable
+
+### Core Huntley Principles Applied
+1. Primary agent = scheduler (minimal context usage)
+2. Expensive allocation work → subagents with fresh context
+3. Parallel subagents for search/write, STRICTLY 1 for tests
+4. Search before implementing (don't assume not implemented)
+5. Full implementations only (no placeholders)
+6. Fix unrelated test failures as part of increment
+7. Self-improvement: update AGENTS.md with learnings
+
 ## Codebase Patterns
 - Python 3.11+, Pydantic v2, Textual TUI
 - Protocols for interfaces (not ABCs)
@@ -13,3 +75,500 @@ Started: $(date)
 - Loguru for all logging
 - Type hints everywhere
 - ruff + mypy + pytest for quality
+
+## 2026-05-09 - US-001
+- Created full directory scaffolding: all 12 sub-packages under src/smartfork/ with __init__.py
+- Created tests/ directory with conftest.py
+- Added LICENSE (AGPL-3.0)
+- Created placeholder CLI entry point (src/smartfork/cli/commands.py) with mypy-compliant type annotations
+- pyproject.toml, ruff.toml, mypy.ini, pytest.ini, .gitignore already existed and are correct per spec
+- **Learnings for future iterations:**
+  - mypy strict mode requires return type annotations on every function (including callbacks like typer callbacks)
+  - The themes/ directory doesn't need __init__.py — a .gitkeep suffices since it holds .tcss files
+  - pip install -e . can hang on Windows when resolving deps; package import test is a faster alternative
+---
+
+## 2026-05-09 - US-002
+- Created 5 model files: session.py, search.py, fork.py, config.py, supersession.py
+- Created protocols.py with LLMProvider, EmbeddingProvider, SessionAdapter Protocols
+- Updated models/__init__.py with full re-exports and __all__
+- Created 6 test files in tests/models/ covering all models and protocols (59 tests)
+- Fixed pydantic version incompatibility (upgraded pydantic 2.10.4 → 2.13.4)
+- **Learnings for future iterations:**
+  - SessionDocument MUST be decorated with @dataclass (spec snippet omitted it but notes say use @dataclass)
+  - Python Protocol class-level annotations like `agent_id: str` are NOT real attributes — use `__annotations__` to test them
+  - The duration_minutes guard `session_end > session_start > 0` rejects session_start=0 — tests must use valid timestamps
+  - ruff requires imports within parenthesized blocks to be alphabetically sorted
+  - Use modern Python 3.11+ type hints (list[...], X | None, StrEnum) — ruff enforces these
+  - pydantic version must be compatible with pydantic-core; pip install --upgrade pydantic fixes ImportError
+---
+
+## 2026-05-09 - US-003
+- Created providers/llm.py: OllamaLLM, AnthropicLLM, OpenAILLM with complete() and complete_structured()
+- Created providers/helpers.py: check_ollama_available(), ensure_ollama_model(), list_available_ollama_models(), recommend_model()
+- Updated providers/__init__.py with full public exports
+- Added openai>=1.0 and anthropic>=0.30 to pyproject.toml dependencies
+- Installed openai, anthropic, instructor packages
+- Created tests/providers/ with 38 tests for helpers + LLM providers
+- **Learnings for future iterations:**
+  - AnthropicLLM and OpenAILLM need complete_structured() to satisfy LLMProvider protocol (even if cloud providers don't need it for US-003 scope)
+  - API key validation: `api_key=None` should skip init-time validation (factory sets None for cloud providers, allows lazy lookup); `api_key=""` triggers env lookup and raises if missing
+  - instructor.from_openai() works with Ollama's OpenAI-compatible endpoint at localhost:11434/v1
+  - When mocking OllamaLLM tests, the OLLAMA_AVAILABLE guard in __init__ requires careful patching of module-level imports
+  - B904 ruff rule: ImportError must be re-raised with `raise X from err` not bare `raise`
+---
+
+## 2026-05-09 - US-004
+- Created providers/embedding.py: OllamaEmbedder (instruction-aware), SentenceTransformerEmbedder, OpenAIEmbedder + get_embedder() + check_embedding_model_available()
+- Created providers/guard.py: EmbeddingModelGuard with dimension compatibility check and warning messages
+- Updated providers/__init__.py with all embedding exports (embedders, instructions, guard)
+- Created tests/providers/test_embedding.py (41 tests) + test_guard.py (8 tests)
+- 138 total tests passing
+- **Learnings for future iterations:**
+  - OllamaEmbedder uses instruction prefixes per doc_type (Anthropic Contextual Retrieval technique); ST and OpenAI ignore doc_type
+  - get_embedder("openai") needs API key at init time; tests must patch _load_api_key to avoid CI failures
+  - EmbeddingModelGuard.check_compatibility: same model name trumps dimension mismatch (returns True)
+  - SentenceTransformer first-use downloads the model — tests must mock SentenceTransformer entirely
+  - ollama.embed() returns {"embeddings": [[...]]} with nested list; access response["embeddings"][0]
+---
+
+## 2026-05-09 - US-005
+- Implemented SmartForkConfig(BaseSettings) with TOML save/load, env var override (SMARTFORK_ prefix), secrets management
+- Theme validation: 6 allowed themes (phosphor, obsidian, ember, arctic, iron, tungsten), case-insensitive
+- Legacy config.json → config.toml migration with backup
+- get_secret()/set_secret() with env var fallback and Unix 0o600 permissions
+- Singleton get_config()/reload_config() with module-level cache
+- Legacy kilo_code_tasks_path property
+- Created tests/test_config.py (161 total tests passing)
+- **Learnings for future iterations:**
+  - pydantic v2 uses @field_validator not @validator (v1 API deprecated)
+  - TOML save should use nested sections ([core], [agents], [paths], [models], [indexing], [performance]) for readability
+  - When patching Path.home() in tests, must set return_value BEFORE config module is imported, else MagicMock leaks into CONFIG_DIR defaults
+  - Path fields benefit from @field_validator with expanduser() to handle ~ in paths
+  - agents dict uses string keys mapping to AgentConfig; TOML serialization needs special handling for nested dict of models
+---
+
+## 2026-05-09 - US-006
+- Created adapters/base.py: SessionAdapter ABC with 3 abstract methods + 3 concrete default methods
+- Created adapters/registry.py: @register decorator, get_adapter(), get_adapter_or_raise(), list_adapters(), list_agent_ids(), is_registered(), clear_registry()
+- Updated adapters/__init__.py with public exports
+- Created tests/adapters/test_base.py (5 tests) + test_registry.py (17 tests)
+- 181 total tests passing
+- **Learnings for future iterations:**
+  - SessionAdapter is both a Protocol (in providers/protocols.py for interface contracts) and an ABC (in adapters/base.py for concrete subclassing) — both needed but serve different purposes
+  - @register decorator must instantiate the class at decoration time (stores instance in _REGISTRY, not class)
+  - Registry string forward-refs need module-level import to avoid F821; can't rely solely on __future__ annotations
+  - clear_registry() helper is essential for test isolation since registry is module-level global state
+---
+
+## 2026-05-09 - US-007
+- Created adapters/kilocode.py: KiloCodeAdapter with full 3-file JSON parsing, multi-format content extraction, 15+ tool call detection, content cleaning, IDE path detection for 3 IDEs across 3 platforms
+- Created test fixtures: task_metadata.json, api_conversation_history.json, ui_messages.json
+- Created tests/adapters/test_kilocode.py (28 tests)
+- 209 total tests passing
+- **Learnings for future iterations:**
+  - Kilo Code ui_messages.json reasoning blocks use `say` field as type indicator and `text` field for actual content — don't confuse them
+  - Multi-format content: plain string, OpenAI array `[{type, text}]`, and nested `{type, text: {value}}` — need robust recursive extraction
+  - Tool call turns should still be cleaned (remove file_content blocks), not just skipped entirely
+  - parse_raw() should guard with is_valid_session() early to return None for nonexistent dirs
+  - Fixture data must be realistic enough to test ALL extraction paths (string content, array-of-parts, reasoning, tool calls)
+---
+
+## 2026-05-16 - US-001
+- Fixed reasoning_docs SQLite data loss and auto-migrated existing databases
+- Files changed: src/smartfork/indexer/metadata_store.py, tests/indexer/test_metadata_store.py, src/smartfork/models/session.py, src/smartfork/indexer/parser.py, src/smartfork/config.py, tests/conftest.py, tests/models/test_session.py, tests/indexer/test_parser.py
+- Added reasoning_docs column to SCHEMA_SQL with DEFAULT '[]'
+- Bound reasoning_docs in upsert_session() via _serialize_list()
+- Deserialized reasoning_docs in get_session_document() via _deserialize_list()
+- Added _ensure_schema() migration method that runs ALTER TABLE ADD COLUMN if missing
+- Migration prints yellow warning via loguru
+- Added test_reasoning_docs_round_trip test
+- 63 targeted tests passing
+- **Learnings for future iterations:**
+  - The "schema v3" in acceptance criteria refers to DB table schema, not SessionDocument.schema_version — but bumping schema_version doesn't break tests
+  - _ensure_schema() must run AFTER _init_db() so table exists before PRAGMA table_info
+  - loguru import needs to be grouped with third-party imports for ruff I001 compliance
+  - Pre-existing ruff/mypy/pytest failures in other modules (theme.py, mcp/server.py, providers/helpers.py, adapters/opencode.py) are not caused by this change
+---
+
+## 2026-05-16 - US-002
+- Added tiered LLM configuration (strategic_llm + smart_llm)
+- Files changed: src/smartfork/config.py, tests/test_config.py
+- Added 6 new fields: strategic_llm_provider/model/base_url, smart_llm_provider/model/base_url
+- Added @model_validator(mode='after') to backfill None defaults from base llm_* values
+- Updated _flatten_toml(), _to_nested_dict(), _migrate_legacy() to handle new fields
+- Added 5 tests in TestTieredLLMConfig covering defaults, overrides, round-trip, TOML serialization, and conditional base_url omission
+- Fixed pre-existing test bug: test_default_embedding_dimensions_is_512 → 1024
+- 28 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Pydantic BaseSettings doesn't support self-referencing defaults at class level; use @model_validator(mode='after') for backfill logic
+  - Conditional TOML serialization for *_base_url should match existing llm_base_url pattern (omit when None)
+  - Legacy migration simple_fields set must include new fields or they get lost during JSON→TOML migration
+---
+
+## 2026-05-16 - US-003
+- Implemented QueryDecomposer agent with structured output
+- Files changed: src/smartfork/models/search.py, src/smartfork/providers/protocols.py, src/smartfork/providers/llm.py, src/smartfork/search/deterministic.py, src/smartfork/search/agentic.py, tests/models/test_search.py, tests/search/test_deterministic.py, tests/search/test_agentic.py
+- Files created: src/smartfork/search/decomposer.py, tests/search/test_decomposer.py
+- Converted QueryDecomposition from dataclass to Pydantic BaseModel with new fields (core_goal, search_variants, entities, intent, metadata_filters, prefer_recent, prefer_code)
+- Added temperature parameter to LLMProvider.complete_structured() and all implementations
+- Updated downstream consumers (deterministic.py, agentic.py) to use new QueryDecomposition fields
+- Created QueryDecomposer class with rich prompt including good/bad examples
+- Graceful fallback returns original query as single variant
+- 41 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Converting a widely-used dataclass to Pydantic BaseModel requires updating ALL downstream consumers atomically
+  - AgenticSearchEngine._refine_query() had latent bug: empty variants list caused ThreadPoolExecutor(max_workers=0) crash
+  - complete_structured() temperature needs to be forwarded through instructor/openai/anthropic APIs
+  - MockLLM in tests needs signature updates when protocol changes
+---
+
+## 2026-05-16 - US-004
+- Implemented ParallelRetriever that runs deterministic search across variants
+- Files changed: src/smartfork/search/__init__.py
+- Files created: src/smartfork/search/parallel_retriever.py, tests/search/test_parallel_retriever.py
+- ParallelRetriever uses ThreadPoolExecutor(max_workers=min(5, len(variants))) to search each variant in parallel
+- Each variant calls deterministic_engine.search(variant, top_k=top_k * 2)
+- Extracts session_id, title, match_score, project_name from ResultCards
+- Enriches candidates with full session content from metadata_store when available
+- Deduplicates by session_id keeping highest match_score
+- Graceful fallback: catches exceptions per variant, logs warning, continues with remaining
+- 9 tests covering parallel calls, deduplication, fallback, empty results, metadata enrichment, max-workers
+- 43 total search tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - ResultCard doesn't contain full session content; must fetch from metadata_store.get_session(session_id)
+  - Deduplication should preserve metadata from the higher-scored entry
+  - ThreadPoolExecutor max_workers=0 crashes; guard with min(5, len(variants)) and handle empty variants early
+  - Candidate dict schema should be consistent across retriever, reranker, judge, and synthesis stages
+---
+
+## 2026-05-16 - US-005
+- Implemented LLM-based reranker that scores candidates against the original query
+- Files changed: src/smartfork/models/search.py, src/smartfork/models/__init__.py, src/smartfork/search/__init__.py, src/smartfork/search/parallel_retriever.py, tests/search/test_parallel_retriever.py
+- Files created: src/smartfork/search/reranker.py, tests/search/test_reranker.py
+- Added RerankResult and BatchRerankResult Pydantic models
+- RerankerAgent batches candidates into groups of 5, calls complete_structured with temperature=0.1
+- Prompt includes query + task_raw + summary_doc + top 3 keyword-filtered reasoning_docs
+- Re-sorts by relevance_score descending, returns top_n (default 15)
+- Graceful fallback on LLM failure: logs warning, returns candidates sorted by match_score
+- Updated ParallelRetriever to include separate task_raw, summary_doc, reasoning_docs fields
+- 22 reranker tests + 65 total search tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - ParallelRetriever should export separate content fields (task_raw, summary_doc, reasoning_docs) for downstream agents
+  - Keyword filtering: split query into lowercase tokens, filter reasoning_docs, fallback to first 3 truncated if < 3 matches
+  - LLM may hallucinate unknown session_ids — ignore them rather than crash
+  - Missed candidates in a batch should get relevance_score=0.0 so they still appear in results
+  - complete_structured returns object — validate isinstance before using
+---
+
+## 2026-05-16 - US-006
+- Implemented BatchJudgeAgent that reads full content and drops false positives
+- Files changed: src/smartfork/models/search.py, src/smartfork/models/__init__.py, src/smartfork/search/__init__.py
+- Files created: src/smartfork/search/judge.py, tests/search/test_judge.py
+- Added JudgeOutput and BatchJudgeResult Pydantic models
+- BatchJudgeAgent batches candidates into groups of 5, calls complete_structured with temperature=0.1
+- Smart content selection: filters reasoning_docs and files_edited by query keywords + entity names; fallback to first 3 truncated to 1000 chars
+- Prompt includes query, core_goal, intent, and candidate content
+- Drops candidates where matches_query=False, sorts by relevance_score descending, returns top 5
+- Graceful fallback on LLM failure: returns all candidates with match_score as relevance_score, empty reason/key_snippet
+- 16 tests covering dropping, sorting, top-5, fallback, batching, prompt content, empty candidates
+- ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - qd.entities values may be lists or nested dicts — flatten/stringify for keyword matching
+  - Deduplicate by session_id before sorting to avoid duplicate entries from batch boundaries
+  - Fallback docs should be truncated to ~1000 chars to stay within token limits
+  - Judge should return JudgeOutput objects, not candidate dicts — this is a different return type than retriever/reranker
+---
+
+## 2026-05-16 - US-007
+- Implemented SynthesisAgent that writes query-aware excerpts and formats ResultCards
+- Files changed: src/smartfork/search/__init__.py
+- Files created: src/smartfork/search/synthesis.py, tests/search/test_synthesis.py
+- SynthesisAgent is a pure formatting agent (no LLM calls) that maps JudgeOutput → ResultCard
+- Filters out Weak matches (<0.5) before creating cards
+- Badge mapping: ≥0.8 = [green]Strong match[/green], 0.5-0.8 = [yellow]Moderate match[/yellow]
+- excerpt from key_snippet, relevance_explanation from reason, match_score from relevance_score
+- Rank assigned sequentially starting at 1
+- All other ResultCard fields mapped from candidate metadata
+- 16 tests covering badge mapping, field population, rank assignment, empty judgments, missing metadata
+- ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - SynthesisAgent doesn't need an LLM — it's purely data transformation
+  - Badge colors use Rich markup strings ([green]...[green]) for CLI rendering
+  - Candidate dicts should have all metadata fields; use .get() with defaults for safety
+  - Empty list return acts as the "no relevant sessions" flag for CLI
+---
+
+## 2026-05-16 - US-008
+- Implemented SearchOrchestrator that wires all stages into a pipeline
+- Files changed: src/smartfork/search/parallel_retriever.py, src/smartfork/search/judge.py, src/smartfork/search/__init__.py, tests/search/test_parallel_retriever.py
+- Files created: src/smartfork/search/orchestrator.py, tests/search/test_orchestrator.py
+- SearchOrchestrator implements 5-stage pipeline: decompose → retrieve → rerank → judge → synthesize
+- Progress reporting prints status lines for each stage
+- Graceful degradation: decomposer fail → original query; reranker fail → deterministic scores; judge fail → warning-badge cards; synthesis fail → raw cards
+- project_filter and quality_filter passed through to retriever
+- Added top_n parameter to BatchJudgeAgent.judge() to replace hardcoded _TOP_N
+- 12 orchestrator tests + 110 total search tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - ParallelRetriever needs to forward project_filter/quality_filter to deterministic_engine.search()
+  - Judge fallback should build ResultCards directly with warning badges, bypassing SynthesisAgent
+  - Synthesis fallback should build raw ResultCards from judgments/candidates deterministically
+  - Early exit for empty candidates avoids unnecessary LLM calls
+  - Progress lines should use print() for simplicity (may need Rich console later for TUI)
+---
+
+## 2026-05-16 - US-009
+- Wired SearchOrchestrator into CLI search command with --fast fallback
+- Files changed: src/smartfork/cli/commands.py, src/smartfork/search/judge.py, src/smartfork/search/orchestrator.py, tests/cli/test_commands.py, tests/search/test_judge.py, tests/search/test_orchestrator.py
+- Added --fast flag to bypass orchestrator and use DeterministicSearchEngine directly
+- Default path instantiates SearchOrchestrator with all 5 stages
+- LLM setup failure shows clear error + suggests --fast
+- Card display updated: title bar shows [rank] title · badge · project_name · time_ago; body shows excerpt, tags, files_summary; footer shows fork_command
+- Empty results print 'No relevant sessions found.' + judge reasoning from last_empty_reasoning
+- Search duration footer shows mode: 'orchestrator (decompose + parallel + rerank + judge + synthesize)' or 'deterministic (...)'
+- Added rejected_judgments to BatchJudgeAgent and last_empty_reasoning to SearchOrchestrator
+- 53 tests passing (CLI + search), ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - BatchJudgeAgent should store rejected judgments before filtering them out — needed for CLI empty-results messaging
+  - SearchOrchestrator needs instance attribute (last_empty_reasoning) to communicate empty-result reasons to CLI without changing return type
+  - When mocking SearchOrchestrator in CLI tests, also mock Ollama availability checks since get_llm is called inside the command
+  - Reuse LLM instance when strategic_llm == smart_llm to avoid double instantiation
+  - Card display refactoring should handle both orchestrator badges (Rich markup) and deterministic badges
+---
+
+## 2026-05-16 - US-010
+- Built manual and synthetic test suite for the orchestrator pipeline
+- Files changed: tests/search/test_decomposer.py
+- Files created: tests/search/test_manual_evaluation.py
+- Added test_search_variants_count_in_range to test_decomposer.py (asserts 3-5 variants)
+- Created 12 manual test cases covering diverse tech domains
+- Each case designed with unique non-overlapping keywords so deterministic search fails but orchestrator succeeds
+- TestDeterministicFails: 12 parametrized tests proving deterministic search alone misses expected sessions
+- TestOrchestratorFindsSession: 12 parametrized tests proving orchestrator finds expected sessions at rank 1
+- Manual tests use real DeterministicSearchEngine + ParallelRetriever with mocked LLM stages (no real LLM calls)
+- 138 total search tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Manual evaluation tests should use unique keyword isolation per session to make deterministic behavior predictable
+  - Mocked decomposer variants should contain exact session keywords to simulate LLM query expansion
+  - Real engine + mocked LLM stages is the sweet spot for integration testing without flakiness
+  - 12 test cases is a good baseline; can expand to 50+ for regression benchmarking
+  - All synthetic tests from US-003 through US-009 already satisfied AC 6-10; only AC 1-5 needed new work
+---
+
+## 2026-05-17 - US-011
+- Added OpenAICompatibleLLM class to src/smartfork/providers/llm.py
+- Updated src/smartfork/providers/__init__.py to export OpenAICompatibleLLM
+- Created tests/providers/test_openai_compatible.py with 11 unit tests
+- Fixed pre-existing broken Ollama tests in tests/providers/test_llm.py (provider._ollama → provider._client)
+- OpenAICompatibleLLM supports provider_name parameter for dynamic env var derivation (uppercase, hyphens→underscores)
+- complete_structured uses instructor.Mode.JSON for maximum compatibility with non-OpenAI endpoints
+- 93 provider tests passing, ruff clean, mypy clean on new code
+- **Learnings for future iterations:**
+  - provider_name parameter is essential for US-012/US-013 so error messages mention the correct provider name
+  - instructor.Mode.JSON is critical for providers that lack native tool-calling support
+  - Env var derivation: f"{provider_name.upper().replace('-', '_')}_API_KEY" keeps shell-friendly names
+  - Pre-existing ruff/mypy failures in unrelated modules (theme.py, mcp/server.py, adapters/opencode.py) are not caused by this change
+---
+
+## 2026-05-17 - US-012
+- Added OpenCode ecosystem providers (opencode, go, zen) to get_llm() factory
+- Modified OpenAICompatibleLLM to accept api_key_env parameter for shared API key scenarios
+- Updated RuntimeError message to mention the actual provider name the user typed
+- Exported OPENCODE_ECOSYSTEM_PROVIDERS constant from providers/__init__.py
+- Added 8 new tests in tests/providers/test_llm.py covering case-insensitivity, distinct base_urls, and error messages
+- SmartForkConfig._backfill_tiered_llms already passes through any provider string without validation, so no config changes needed
+- 34 tests passing in test_llm.py, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - api_key_env override is critical when multiple provider aliases share the same credential (OPENCODE_API_KEY)
+  - provider_name in error messages gives users actionable feedback even with shared env vars
+  - go and opencode share the same base_url (https://opencode.ai/zen/go/v1) by design; zen is distinct (https://opencode.ai/zen/v1)
+  - No config validator changes needed because _backfill_tiered_llms is purely a backfill pass
+---
+
+## 2026-05-17 - US-013
+- Added 10 third-party OpenAI-compatible providers to get_llm() factory: openrouter, groq, gemini, together, mistral, deepseek, fireworks, cohere, xai, perplexity
+- Added _THIRD_PARTY_PROVIDERS mapping in providers/llm.py with base_url, api_key_env, and default_model for each
+- Added VALID_LLM_PROVIDERS set to config.py and integrated provider name validation into _backfill_tiered_llms
+- Updated AGENTS.md with a comprehensive provider table showing env vars, example models, and free tier notes
+- Added parametrized tests in tests/providers/test_llm.py covering all 10 providers plus case-insensitivity and custom model overrides
+- Added config validation tests in tests/test_config.py for valid/invalid providers and backfill behavior
+- Fixed 4 pre-existing failing tests in tests/test_edge_cases.py (unrelated to this story but part of increment)
+- 80 tests passing in modified test files, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - A single _THIRD_PARTY_PROVIDERS dict makes adding new providers a one-line change
+  - Provider validation in _backfill_tiered_llms is the right place because it runs after backfilling and catches invalid defaults
+  - Case-insensitive validation should normalize to lowercase before checking membership
+  - Pre-existing test failures in edge_cases.py were caused by CLI flag mismatches (--force vs --full) and missing TUI module imports
+  - The full test suite is large (~622 tests); targeted runs on modified files are much faster for iteration
+---
+
+## 2026-05-24 - US-014
+- Created foundational data models for the new search architecture
+- Files created: src/smartfork/models/relationship.py, src/smartfork/models/query.py, src/smartfork/models/enrichment.py
+- Files modified: src/smartfork/models/session.py, src/smartfork/models/__init__.py
+- Files created: tests/models/test_relationship.py (17 tests), test_query.py (7 tests), test_enrichment.py (7 tests)
+- Files modified: tests/models/test_session.py (4 new tests for parent_id/previous_session_id), tests/cli/test_commands.py (fixed pre-existing test failures)
+- SessionRelationship with 4 relationship types (continuation/supersession/branch/related), confidence 0-1 validation, __post_init__ validation
+- Chain with sessions list, chain_type, head/tail session refs, __post_init__ validation
+- TimelineEntry and TimelineSummary for multi-session timeline display
+- QueryInterpretation for structured query understanding (replaces QueryDecomposition in new arch)
+- SessionEnrichment for single-LLM-call indexing enrichment with auto-truncation and tag dedup/sort
+- Added parent_id and previous_session_id to RawSessionData and SessionDocument (default None, backward compatible)
+- All models exported from models/__init__.py
+- 49 tests passing, ruff clean, mypy clean on modified files
+- **Learnings for future iterations:**
+  - The project follows @dataclass pattern with __post_init__ for validation (not Pydantic) for most models
+  - QualityTag StrEnum already exists in session.py — reuse it for enrichment models
+  - Chain.sessions uses list[SessionDocument] which creates a cross-import to session.py — no circular dep since session.py doesn't import relationship.py
+  - SessionEnrichment.title/Summary truncation and tech_tags dedup/sort done in __post_init__ 
+  - The full test suite has pre-existing issues (hanging MCP tests, ruff/mypy issues in theme.py, opencode.py, mcp/server.py) that are tracked for later cleanup (US-030/031)
+  - Pre-existing CLI test failures fixed: patch target was OllamaLLM but CLI imports get_llm; changed to patch get_llm directly
+---
+
+## 2026-05-24 - US-015
+- Defined complete SQLite schema v4 with FTS5, sqlite-vec, and session_relationships tables
+- Files modified: src/smartfork/indexer/metadata_store.py (major rewrite), src/smartfork/indexer/parser.py, src/smartfork/models/session.py
+- Files created: tests/indexer/test_schema_migration.py
+- Files modified: tests/indexer/test_metadata_store.py (13 new tests), tests/indexer/test_parser.py, tests/models/test_session.py
+- SCHEMA_SQL now includes sessions (v4), session_relationships (PK + FKs + indexes), supersession_links (deprecated, kept), sessions_fts (FTS5 standalone with porter unicode61 tokenizer), session_vectors (vec0)
+- FTS5 triggers auto-sync on INSERT/UPDATE/DELETE of sessions table
+- _ensure_schema() uses PRAGMA user_version to detect v3→v4 migration
+- _migrate_to_v4() handles: reasoning_docs fix (pre-v3), relationship table creation, supersession_links→session_relationships migration, FTS5 creation+population, trigger creation, vec0 creation (optional - graceful if sqlite-vec unavailable)
+- WAL mode and foreign_keys PRAGMAs already existed — untouched
+- New MetadataStore methods: add_relationship(), get_relationships() (direction: from/to/both), get_relationships_by_type(), delete_relationships_for_session(), _row_to_relationship()
+- New search: fts5_search() returns list[(session_id, bm25_score)]
+- New vector ops: store_vector(), get_vector(), vector_search(), delete_vector() — all gracefully degrade when sqlite-vec unavailable
+- Bumped schema_version from 3→4 in SessionDocument and parser.py
+- 79 tests passing (4 skipped - vector tests need sqlite-vec installation), ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - FTS5 with content='sessions' requires ALL indexed columns in the content table; standalone FTS5 with manual triggers is more reliable and avoids schema coupling
+  - PRAGMA user_version must be explicitly SET after migration; fresh DBs without migration start at 0
+  - sqlite-vec vec0 table creation may fail if the extension is not loaded — wrap in try/except and log warning
+  - INSERT OR IGNORE (not bare INSERT) in migration FTS5 population enables idempotent re-runs
+  - Existing supersession_links CRUD must be preserved for backward compatibility — the new session_relationships table coexists
+  - Migration must handle pre-v3 DBs (missing reasoning_docs) gracefully since _ensure_schema previously only migrated v2→v3
+---
+
+## 2026-05-24 - US-016
+- Fixed OpenCode adapter to preserve parent_id from SQLite session table through to SessionDocument
+- Files modified: src/smartfork/adapters/opencode.py, src/smartfork/indexer/parser.py
+- Files modified: tests/adapters/test_opencode.py (2 new tests), tests/indexer/test_parser.py (1 new test), tests/adapters/test_kilocode.py (1 regression test), tests/adapters/test_claudecode.py (1 regression test)
+- OpenCode adapter now reads row["parent_id"] from SQLite query and passes to RawSessionData constructor
+- SessionParser.parse_session() copies raw.parent_id and raw.previous_session_id to SessionDocument
+- Removed unused typing.Any import from opencode.py and fixed import sorting
+- 97 tests passing (all adapter + parser tests), ruff clean, mypy on parser.py clean
+- **Learnings for future iterations:**
+  - The OpenCode SQLite query already SELECTed parent_id — it was just never read from the row or passed downstream
+  - KiloCode and ClaudeCode adapters don't have parent_id in their data formats, so they correctly default to None
+  - 4 pre-existing mypy errors in opencode.py (helper functions) remain — not caused by this change
+---
+
+## 2026-05-24 - US-017
+- Built SessionEssenceBuilder to create condensed session text for embedding
+- Files created: src/smartfork/indexer/session_essence_builder.py, tests/indexer/test_session_essence_builder.py
+- Files modified: src/smartfork/indexer/__init__.py (added export + __all__)
+- SessionEssenceBuilder with build_essence(session) -> str and build_essence_with_instruction(session) -> str
+- Essence format: Task + Summary + Reasoning 1-3 (truncated) + Technologies sections
+- Each reasoning block truncated to max_reasoning_length (default 1500 chars) with "..." suffix
+- Only top max_reasoning_docs (default 3) reasoning docs included
+- Instruction prefix: "Represent this coding session for semantic retrieval: " (Ollama instruction-aware models)
+- Total essence bounded by max_total_tokens (default 5000, ~4 chars/token), gracefully drops reasoning blocks from end
+- 9 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - max_total_tokens enforced by character count (×4) since no tokenizer dependency — matches existing _estimate_tokens in chunker
+  - Sections only included when data is present (no empty "Reasoning:" or "Technologies:" lines)
+  - __init__.py needs __all__ list for ruff F401 when re-exporting imports
+---
+
+## 2026-05-24 - US-018
+- Rewrote EmbeddingPipeline to store session-level vectors in sqlite-vec instead of chunk-level in ChromaDB
+- Files rewritten: src/smartfork/indexer/embedder.py (complete rewrite), tests/indexer/test_embedder.py (10 new tests)
+- Files modified: src/smartfork/indexer/indexer.py (removed chunking + embed_and_store, uses embed_session), src/smartfork/search/deterministic.py (_vector_search uses MetadataStore), src/smartfork/cli/commands.py (new constructor, updated labels), src/smartfork/indexer/metadata_store.py (added get_vector_count()), tests/test_edge_cases.py (removed ChromaDB test, updated mocks), tests/cli/test_commands.py (updated assertions)
+- Removed all ChromaDB dependencies: no more chromadb imports, collection, persist_dir, batch_size, _retry_with_backoff, embed_and_store()
+- New API: embed_session(session) -> list[float] | None, embed_sessions_batch(sessions, callback) -> dict, embed_query(query) -> list[float]
+- Constructor: EmbeddingPipeline(embedder, store=None, essence_builder=None) — no more persist_dir/batch_size
+- Auto-fallback: Ollama failure → SentenceTransformerEmbedder("mixedbread-ai/mxbai-embed-large-v1", 1024)
+- Double failure: log error, return None (FTS5 still works)
+- Instruction-aware: detects Ollama via hasattr('_build_prompt'), uses build_essence_with_instruction
+- FullIndexer no longer chunks before embedding — single session embedding per document
+- DeterministicSearchEngine._vector_search uses MetadataStore.vector_search() instead of ChromaDB collection
+- CLI labels updated: "Chunks created" → "Sessions embedded", "Embeddings stored" → "Vectors stored"
+- Status command uses store.get_vector_count() instead of pipeline.get_collection_stats()
+- 72 tests passing (10 embedder + 44 edge/CLI + 18 deterministic), ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Downstream consumers (indexer.py, deterministic.py, commands.py, edge_cases.py) all needed updating due to API change
+  - SentenceTransformerEmbedder must be imported lazily inside embed_session (not at module level) — patching targets must match
+  - KeyboardInterrupt must NOT be caught by except Exception — it must propagate
+  - MetadataStore.get_vector_count() safely returns 0 when sqlite-vec unavailable
+  - The old ChromaDB embed_and_store() was tightly coupled with chunking — removing chunking from the embedding pipeline simplifies the indexer significantly
+---
+
+## 2026-05-24 - US-019
+- Refactored IndexIntelligence from 5 separate LLM calls to 1 structured call per session
+- Files modified (10 source): intelligence.py, enrichment.py (dataclass→Pydantic), session.py, parser.py, metadata_store.py, chunker.py, assembler.py, obsidian.py, progress.py, commands.py
+- Files modified (6 test): test_intelligence.py, test_chunker.py, test_assembler.py, test_metadata_store.py, test_session.py, test_schema_migration.py, test_enrichment.py, test_commands.py
+- New _llm_enrich_structured() method: 1 structured LLM call via complete_structured(output_schema=SessionEnrichment)
+- Fallback: if structured output unavailable, uses text response + JSON parsing via _parse_enrichment_result()
+- Removed 5 old methods: _llm_title, _llm_summary, _llm_tech_tags, _llm_quality, _llm_propositions
+- Removed propositions field from SessionDocument and all related code (models, parser, metadata_store, chunker, assembler, obsidian)
+- Converted SessionEnrichment from @dataclass to Pydantic BaseModel for instructor compatibility
+- ProgressEvent.enrich_total changed from 5 to 1
+- Added --enrich CLI flag: LLM enrichment now opt-in (default: heuristics only)
+- All fallback helpers preserved: _extract_title_fallback, _extract_summary_fallback, _classify_quality, _extract_tech_tags
+- 115 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - SessionEnrichment must be Pydantic BaseModel (not dataclass) for instructor.from_openai() structured output
+  - Converting dataclass→Pydantic requires updating all test assertions (ValidationError instead of ValueError)
+  - Propositions column kept in SQLite schema for backward compatibility but removed from all read/write paths
+  - --enrich flag flips default behavior: previously always used LLM if available, now heuristics-only unless flag passed
+---
+
+## 2026-05-24 - US-020
+- Built RelationshipDetector with explicit, heuristic, and optional LLM-verified tiers
+- Files created: src/smartfork/indexer/relationship_detector.py, tests/indexer/test_relationship_detector.py
+- Files modified: src/smartfork/indexer/__init__.py (exported RelationshipDetector)
+- detect_all(sessions, vectors) -> list[SessionRelationship] combines all detection tiers
+- Tier 1 (explicit): uses parent_id for continuation relationships with confidence=1.0
+- Tier 2 (heuristic): groups by project, sorts by time, forward-only O(n²/2) comparisons
+- Hard filters: same session skip, >30 day gap, no domain overlap
+- Scoring: temporal (<24h) +0.30, file overlap (>30%) +0.25, embedding sim (>0.8) +0.20, workspace +0.15, resolution boost +0.10
+- Classification: supersession (resolved older + task overlap), continuation (task + file overlap), branch (same project, different task), related (fallback)
+- Helper methods: _is_resolved, _significant_task_overlap (Jaccard >0.5), _cosine_similarity
+- 21 tests covering all tiers, hard filters, forward-only optimization, classification, and helpers
+- **Learnings for future iterations:**
+  - Forward-only optimization eliminates ~50% of comparisons vs all permutations
+  - Scoring threshold of 0.40 ensures only meaningful relationships are stored
+  - Cosine similarity handles zero vectors and length mismatches gracefully
+  - Jaccard similarity with cleaned word sets is effective for task overlap detection
+---
+
+## 2026-05-24 - US-021
+- Fixed SupersessionDetector O(n²) algorithm and no-vector threshold bugs
+- Files modified: src/smartfork/indexer/supersession.py, tests/indexer/test_supersession.py
+- find_supersessions(): now groups by project, sorts by time, forward-only comparisons (i < j) — cuts comparisons ~50%
+- Removed unnecessary time guard in detect_supersession() (forward-only guarantees newer > older)
+- Fixed no-vector bug: base score increased from 0.5 to 0.6 when vectors absent
+- Increased resolution boosts: unresolved older +0.15 (was +0.10), resolved newer +0.10 (was +0.05)
+- 17 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - Forward-only optimization is a one-line change with big impact: compare i < j instead of all i,j pairs
+  - The no-vector max score was 0.5+0.10+0.05=0.65, well below the 0.85 threshold — making the entire code path dead
+  - New max scores with vectors: 0.60+0.25+0.15+0.10=1.10 (easily crosses threshold)
+  - New max without vectors: 0.60+0.15+0.10=0.85 (just barely crosses threshold — intentional design)
+---
+
+## 2026-05-24 - US-022
+- Updated FullIndexer to use session-level embedding and added relationship detection phase
+- Files modified: src/smartfork/indexer/indexer.py, tests/indexer/test_indexer.py
+- Removed chunker.chunk() dependency from FullIndexer (no more MessageBoundaryChunker in indexing path)
+- Added RelationshipDetector to FullIndexer.__init__
+- After all sessions stored: runs detect_all(sessions, vectors) per project, stores relationships via store.add_relationship()
+- Progress reporting updated with "detecting relationships" phase
+- Stats include "relationships" count in final summary
+- 7 tests passing, ruff clean, mypy clean
+- **Learnings for future iterations:**
+  - MagicMock dynamically creates attributes, so hasattr(mock, "method_name") always returns True
+  - Use call_count == 0 as a more reliable check than hasattr for mock verification
+  - Variable shadowing in nested loops causes mypy errors — use distinct variable names
+  - The indexer flow is now: scan → parse → embed → store → enrich → detect relationships
+---

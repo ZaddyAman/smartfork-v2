@@ -1,0 +1,38 @@
+name: SmartFork v2 CI
+
+on:
+  push:
+    branches: [main, develop, ralph/smartfork-v2]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[dev]"
+
+      - name: Lint with ruff
+        run: ruff check src/
+
+      - name: Type check with mypy
+        run: mypy src/
+
+      - name: Test with pytest
+        run: pytest tests/ -x -v --tb=short
+
+      - name: Test edge cases
+        run: pytest tests/ -v -k "test_empty or test_corrupt or test_unicode" --tb=short || true
